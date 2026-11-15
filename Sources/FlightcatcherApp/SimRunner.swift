@@ -10,6 +10,8 @@ final class SimRunner: ObservableObject {
     @Published private(set) var radioLog: [RadioMessage] = []
     @Published private(set) var conflicts: [Conflict] = []
     @Published private(set) var lossCount = 0
+    /// "ARR 22/h ↑  DEP 9/h ↓", empty when traffic is off.
+    @Published private(set) var trafficRates = ""
     @Published private(set) var wind: Wind = .calm
     @Published private(set) var commandHistory: [String: [CommandRecord]] = [:]
     @Published private(set) var runwayStatuses: [RunwayStatus] = []
@@ -292,6 +294,7 @@ final class SimRunner: ObservableObject {
         radioLog = sim.radioLog
         conflicts = sim.conflicts
         lossCount = sim.lossOfSeparationCount
+        trafficRates = sim.trafficRatesText
         wind = sim.wind
         commandHistory = sim.commandHistory
         runwayStatuses = sim.runwayStatuses

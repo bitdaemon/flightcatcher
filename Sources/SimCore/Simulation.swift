@@ -106,6 +106,16 @@ public final class Simulation {
         didSet { if traffic.enabled && !oldValue.enabled { queuedArrivals = max(queuedArrivals, 1) } }
     }
     private var trafficRng: SeededRNG
+    /// Moves the traffic rates inside their ranges. Its own sequence, so fixed-rate traffic is unchanged by it.
+    private var rateRng: SeededRNG
+    /// Arrivals and departures per hour in use now, inside the ranges in `traffic`.
+    public private(set) var arrivalRatePerHour: Double = 0
+    public private(set) var departureRatePerHour: Double = 0
+    /// Where the rates are heading.
+    public private(set) var arrivalTargetPerHour: Double = 0
+    public private(set) var departureTargetPerHour: Double = 0
+    private var nextRateChangeTick = 0
+    private var ratesStarted = false
     /// Random events (go-arounds, windshear, emergencies): percentages of arrivals. Off by default.
     public var events = EventSettings()
     private var eventRng: SeededRNG
@@ -127,6 +137,7 @@ public final class Simulation {
         self.weatherRng = SeededRNG(seed: seed ^ 0x5EA7_4E12_D00D_F00D)
         self.trafficRng = SeededRNG(seed: seed ^ 0x7AF1_C5EE_D0F1_2B3D)
         self.eventRng = SeededRNG(seed: seed ^ 0x3E0E_17AC_91D5_6B21)
+        self.rateRng = SeededRNG(seed: seed ^ 0x51C3_D7A0_9E37_79B9)
         self.windDrifts = windDrifts
         if let airport {
             let proj = airport.referenceProjection
@@ -348,6 +359,8 @@ public final class Simulation {
     /// Restarts the traffic generator's random sequence (the app uses this for a fixed or fresh traffic seed).
     public func reseedTraffic(_ seed: UInt64) {
         trafficRng = SeededRNG(seed: seed ^ 0x7AF1_C5EE_D0F1_2B3D)
+        rateRng = SeededRNG(seed: seed ^ 0x51C3_D7A0_9E37_79B9)
+        ratesStarted = false
     }
 
     private enum SpawnOutcome { case spawned, blocked, impossible }
@@ -356,9 +369,10 @@ public final class Simulation {
     /// because the entry is crowded waits in a short queue.
     private func spawnTraffic() {
         let roll = TrafficPlanner.unit(&trafficRng)
+        updateTrafficRates()
         guard traffic.enabled, airport != nil else { return }
-        if roll < traffic.arrivalsPerHour / 3600 { queuedArrivals += 1 }
-        if traffic.departuresPerHour > 0, TrafficPlanner.unit(&trafficRng) < traffic.departuresPerHour / 3600 {
+        if roll < arrivalRatePerHour / 3600 { queuedArrivals += 1 }
+        if departureRatePerHour > 0, TrafficPlanner.unit(&trafficRng) < departureRatePerHour / 3600 {
             spawnDeparture()
         }
         guard queuedArrivals > 0 else { return }
@@ -367,6 +381,65 @@ public final class Simulation {
         case .blocked: queuedArrivals = min(queuedArrivals, 4)
         case .impossible: queuedArrivals = 0
         }
+    }
+
+    // MARK: Traffic rates
+
+    /// Once a second: a fixed range gives its single value. A range lets the rate glide toward a target inside it; a
+    /// new target comes at a random interval set by `traffic.variation`, at most `jump` of the range width away.
+    private func updateTrafficRates() {
+        let a = traffic.arrivalRange, d = traffic.departureRange
+        guard traffic.isVariable else {
+            arrivalRatePerHour = a.lowerBound; arrivalTargetPerHour = a.lowerBound
+            departureRatePerHour = d.lowerBound; departureTargetPerHour = d.lowerBound
+            ratesStarted = false
+            return
+        }
+        let v = traffic.variation
+        if !ratesStarted {
+            arrivalTargetPerHour = pickRate(in: a, from: nil, jump: 1)
+            departureTargetPerHour = pickRate(in: d, from: nil, jump: 1)
+            arrivalRatePerHour = arrivalTargetPerHour
+            departureRatePerHour = departureTargetPerHour
+            nextRateChangeTick = tickCount + rateInterval(v)
+            ratesStarted = true
+        } else if tickCount >= nextRateChangeTick {
+            arrivalTargetPerHour = pickRate(in: a, from: arrivalRatePerHour, jump: v.jump)
+            departureTargetPerHour = pickRate(in: d, from: departureRatePerHour, jump: v.jump)
+            nextRateChangeTick = tickCount + rateInterval(v)
+        }
+        // The player may have moved a range: keep everything inside it.
+        arrivalTargetPerHour = min(max(arrivalTargetPerHour, a.lowerBound), a.upperBound)
+        departureTargetPerHour = min(max(departureTargetPerHour, d.lowerBound), d.upperBound)
+        let k = min(1, 3 / v.easeSeconds)
+        arrivalRatePerHour = min(max(arrivalRatePerHour + (arrivalTargetPerHour - arrivalRatePerHour) * k, a.lowerBound), a.upperBound)
+        departureRatePerHour = min(max(departureRatePerHour + (departureTargetPerHour - departureRatePerHour) * k, d.lowerBound), d.upperBound)
+    }
+
+    private func unitRate() -> Double { Double(rateRng.next() >> 11) / Double(1 << 53) }
+
+    private func rateInterval(_ v: TrafficVariation) -> Int {
+        Int(v.intervalSeconds.lowerBound + unitRate() * (v.intervalSeconds.upperBound - v.intervalSeconds.lowerBound))
+    }
+
+    private func pickRate(in range: ClosedRange<Double>, from current: Double?, jump: Double) -> Double {
+        let width = range.upperBound - range.lowerBound
+        let u = unitRate()
+        guard width > 0 else { return range.lowerBound }
+        guard let current else { return range.lowerBound + u * width }
+        let lo = max(range.lowerBound, current - jump * width)
+        let hi = min(range.upperBound, current + jump * width)
+        return lo + u * (hi - lo)
+    }
+
+    /// "ARR 22/h ↑  DEP 9/h ↓" for the info panel; empty when traffic is off.
+    public var trafficRatesText: String {
+        guard traffic.enabled else { return "" }
+        func part(_ label: String, _ rate: Double, _ target: Double) -> String {
+            let arrow = target - rate > 0.5 ? " ↑" : (target - rate < -0.5 ? " ↓" : "")
+            return "\(label) \(Int(rate.rounded()))/h\(arrow)"
+        }
+        return part("ARR", arrivalRatePerHour, arrivalTargetPerHour) + "  " + part("DEP", departureRatePerHour, departureTargetPerHour)
     }
 
     private func spawnArrival() -> SpawnOutcome {

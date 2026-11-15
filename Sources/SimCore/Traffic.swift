@@ -13,11 +13,22 @@ public struct TrafficSettings: Equatable, Codable {
     public var disabledTypes: Set<String>
     /// Fixed seed for repeating a session. Nil means a new random seed each start.
     public var fixedSeed: UInt64?
+    /// Top of the arrival range. `arrivalsPerHour` is the bottom; nil (or a value not above it) means a fixed rate.
+    public var arrivalsMaxPerHour: Double?
+    /// Top of the departure range. `departuresPerHour` is the bottom; nil means a fixed rate.
+    public var departuresMaxPerHour: Double?
+    /// How often and how sharply the rates move inside their ranges.
+    public var variation: TrafficVariation
 
     public init(enabled: Bool = false, arrivalsPerHour: Double = 15, departuresPerHour: Double = 8,
                 ifr: Bool = true, vfr: Bool = false,
                 enabledCategories: Set<AircraftCategory> = [.heavy, .narrowbody, .regional, .light],
-                disabledTypes: Set<String> = [], fixedSeed: UInt64? = nil) {
+                disabledTypes: Set<String> = [], fixedSeed: UInt64? = nil,
+                arrivalsMaxPerHour: Double? = nil, departuresMaxPerHour: Double? = nil,
+                variation: TrafficVariation = .moderate) {
+        self.arrivalsMaxPerHour = arrivalsMaxPerHour
+        self.departuresMaxPerHour = departuresMaxPerHour
+        self.variation = variation
         self.enabled = enabled
         self.arrivalsPerHour = arrivalsPerHour
         self.departuresPerHour = departuresPerHour
@@ -41,28 +52,96 @@ extension TrafficSettings {
                   enabledCategories: try c.decodeIfPresent(Set<AircraftCategory>.self, forKey: .enabledCategories)
                       ?? [.heavy, .narrowbody, .regional, .light],
                   disabledTypes: try c.decodeIfPresent(Set<String>.self, forKey: .disabledTypes) ?? [],
-                  fixedSeed: try c.decodeIfPresent(UInt64.self, forKey: .fixedSeed))
+                  fixedSeed: try c.decodeIfPresent(UInt64.self, forKey: .fixedSeed),
+                  arrivalsMaxPerHour: try c.decodeIfPresent(Double.self, forKey: .arrivalsMaxPerHour),
+                  departuresMaxPerHour: try c.decodeIfPresent(Double.self, forKey: .departuresMaxPerHour),
+                  variation: try c.decodeIfPresent(TrafficVariation.self, forKey: .variation) ?? .moderate)
+    }
+
+    /// Arrivals per hour, low to high. A single value when the range is fixed.
+    public var arrivalRange: ClosedRange<Double> {
+        arrivalsPerHour...max(arrivalsPerHour, arrivalsMaxPerHour ?? arrivalsPerHour)
+    }
+
+    /// Departures per hour, low to high.
+    public var departureRange: ClosedRange<Double> {
+        departuresPerHour...max(departuresPerHour, departuresMaxPerHour ?? departuresPerHour)
+    }
+
+    /// True when either rate can move.
+    public var isVariable: Bool {
+        arrivalRange.upperBound > arrivalRange.lowerBound || departureRange.upperBound > departureRange.lowerBound
+    }
+}
+
+/// How the traffic rates move inside their ranges.
+public enum TrafficVariation: String, Codable, CaseIterable, Identifiable {
+    case steady, moderate, lively
+
+    public var id: String { rawValue }
+
+    public var title: String {
+        switch self {
+        case .steady: return "Steady"
+        case .moderate: return "Moderate"
+        case .lively: return "Lively"
+        }
+    }
+
+    /// Seconds until the next new target rate.
+    var intervalSeconds: ClosedRange<Double> {
+        switch self {
+        case .steady: return 1200...1800
+        case .moderate: return 480...900
+        case .lively: return 180...480
+        }
+    }
+
+    /// How far a new target may be from the present rate, as a share of the range width.
+    var jump: Double {
+        switch self {
+        case .steady: return 0.3
+        case .moderate: return 0.6
+        case .lively: return 1.0
+        }
+    }
+
+    /// Seconds for the rate to move most of the way (about 95%) to a new target.
+    var easeSeconds: Double {
+        switch self {
+        case .steady: return 180
+        case .moderate: return 120
+        case .lively: return 60
+        }
     }
 }
 
 public struct TrafficPreset: Identifiable {
     public var id: String { name }
     public let name: String
-    public let arrivalsPerHour: Double
+    /// Arrival range, low to high.
+    public let arrivals: ClosedRange<Double>
+    public let variation: TrafficVariation
     public let categories: Set<AircraftCategory>
 
+    private static let all4: Set<AircraftCategory> = [.heavy, .narrowbody, .regional, .light]
+
     public static let all: [TrafficPreset] = [
-        TrafficPreset(name: "Quiet", arrivalsPerHour: 8, categories: [.heavy, .narrowbody, .regional, .light]),
-        TrafficPreset(name: "Moderate", arrivalsPerHour: 20, categories: [.heavy, .narrowbody, .regional, .light]),
-        TrafficPreset(name: "Busy", arrivalsPerHour: 40, categories: [.heavy, .narrowbody, .regional, .light]),
-        TrafficPreset(name: "Airline only", arrivalsPerHour: 30, categories: [.heavy, .narrowbody, .regional]),
-        TrafficPreset(name: "Heavy mix", arrivalsPerHour: 25, categories: [.heavy, .narrowbody]),
-        TrafficPreset(name: "Turboprops and light", arrivalsPerHour: 15, categories: [.regional, .light]),
+        TrafficPreset(name: "Quiet", arrivals: 2...8, variation: .steady, categories: all4),
+        TrafficPreset(name: "Moderate", arrivals: 12...24, variation: .moderate, categories: all4),
+        TrafficPreset(name: "Busy", arrivals: 25...45, variation: .moderate, categories: all4),
+        TrafficPreset(name: "Rush", arrivals: 30...50, variation: .lively, categories: all4),
+        TrafficPreset(name: "Airline only", arrivals: 20...35, variation: .moderate, categories: [.heavy, .narrowbody, .regional]),
+        TrafficPreset(name: "Heavy mix", arrivals: 15...30, variation: .moderate, categories: [.heavy, .narrowbody]),
+        TrafficPreset(name: "Turboprops and light", arrivals: 8...18, variation: .moderate, categories: [.regional, .light]),
     ]
 
-    /// Applies the rate and type selection, leaving the on/off switch, IFR flag and seed alone.
+    /// Applies the arrival range, variation and type selection, leaving the on/off switch, departures, IFR flag and
+    /// seed alone.
     public func apply(to settings: inout TrafficSettings) {
-        settings.arrivalsPerHour = arrivalsPerHour
+        settings.arrivalsPerHour = arrivals.lowerBound
+        settings.arrivalsMaxPerHour = arrivals.upperBound
+        settings.variation = variation
         settings.enabledCategories = categories
         settings.disabledTypes = []
     }

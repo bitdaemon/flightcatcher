@@ -11,6 +11,8 @@ struct InfoPanelView: View {
     /// Where the wind comes from ("Real, METAR KBOS", "Random drift", "Fixed") and when the next live fetch is due.
     var windSource: String = ""
     var nextWeatherUpdate: Date? = nil
+    /// Current traffic rates and where they are heading; empty when traffic is off.
+    var trafficRates: String = ""
     @ObservedObject private var themeStore = ThemeStore.shared
     private var theme: Theme { themeStore.theme }
 
@@ -33,6 +35,9 @@ struct InfoPanelView: View {
             row("WIND", wind.text + (wind.speedKt < 0.5 ? "" : " kt"))
             if !windSource.isEmpty {
                 row("SRC", windSource)
+            }
+            if !trafficRates.isEmpty {
+                row("TRAF", trafficRates)
             }
             if let next = nextWeatherUpdate {
                 TimelineView(.periodic(from: .now, by: 1)) { context in

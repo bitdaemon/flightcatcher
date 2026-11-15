@@ -137,7 +137,8 @@ struct ContentView: View {
                       width: 300, layout: layout) {
             InfoPanelView(airport: runner.airport, conflicts: runner.conflicts, lossCount: runner.lossCount,
                           wind: runner.wind, runways: runner.runwayStatuses,
-                          windSource: runner.windSource, nextWeatherUpdate: runner.nextWeatherUpdate)
+                          windSource: runner.windSource, nextWeatherUpdate: runner.nextWeatherUpdate,
+                          trafficRates: runner.trafficRates)
         }
         FloatingPanel(id: "runways", title: "Runways", window: window,
                       defaultOrigin: CGPoint(x: max(12, window.width - 312), y: 620),

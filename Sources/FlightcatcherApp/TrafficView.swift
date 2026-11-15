@@ -6,22 +6,76 @@ struct TrafficView: View {
     @ObservedObject var runner: SimRunner
     @State private var seedText = ""
 
+    /// A low and a high slider. Moving one past the other pushes the other along.
+    private func rateRange(_ title: String, low: Binding<Double>, high: Binding<Double>, limit: Double) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+            HStack {
+                Text("Low").frame(width: 34, alignment: .leading).foregroundStyle(.secondary)
+                Slider(value: low, in: 0...limit, step: 1)
+                Text("\(Int(low.wrappedValue))").monospacedDigit().frame(width: 28, alignment: .trailing)
+            }
+            HStack {
+                Text("High").frame(width: 34, alignment: .leading).foregroundStyle(.secondary)
+                Slider(value: high, in: 0...limit, step: 1)
+                Text("\(Int(high.wrappedValue))").monospacedDigit().frame(width: 28, alignment: .trailing)
+            }
+        }
+    }
+
+    private var arrivalLow: Binding<Double> {
+        Binding(get: { runner.traffic.arrivalRange.lowerBound }, set: { v in
+            var t = runner.traffic
+            t.arrivalsMaxPerHour = max(v, t.arrivalRange.upperBound)
+            t.arrivalsPerHour = v
+            runner.traffic = t
+        })
+    }
+
+    private var arrivalHigh: Binding<Double> {
+        Binding(get: { runner.traffic.arrivalRange.upperBound }, set: { v in
+            var t = runner.traffic
+            t.arrivalsMaxPerHour = v
+            t.arrivalsPerHour = min(t.arrivalsPerHour, v)
+            runner.traffic = t
+        })
+    }
+
+    private var departureLow: Binding<Double> {
+        Binding(get: { runner.traffic.departureRange.lowerBound }, set: { v in
+            var t = runner.traffic
+            t.departuresMaxPerHour = max(v, t.departureRange.upperBound)
+            t.departuresPerHour = v
+            runner.traffic = t
+        })
+    }
+
+    private var departureHigh: Binding<Double> {
+        Binding(get: { runner.traffic.departureRange.upperBound }, set: { v in
+            var t = runner.traffic
+            t.departuresMaxPerHour = v
+            t.departuresPerHour = min(t.departuresPerHour, v)
+            runner.traffic = t
+        })
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("RANDOM TRAFFIC").font(.ui(size: 13, weight: .semibold))
             Toggle("Generate traffic", isOn: $runner.traffic.enabled)
 
+            rateRange("Arrivals per hour", low: arrivalLow, high: arrivalHigh, limit: 60)
+            rateRange("Departures per hour", low: departureLow, high: departureHigh, limit: 40)
             HStack {
-                Text("Arrivals per hour")
-                Slider(value: $runner.traffic.arrivalsPerHour, in: 0...60, step: 1)
-                Text("\(Int(runner.traffic.arrivalsPerHour))").monospacedDigit().frame(width: 28, alignment: .trailing)
+                Text("Variation")
+                Picker("", selection: $runner.traffic.variation) {
+                    ForEach(TrafficVariation.allCases) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
             }
-
-            HStack {
-                Text("Departures per hour")
-                Slider(value: $runner.traffic.departuresPerHour, in: 0...40, step: 1)
-                Text("\(Int(runner.traffic.departuresPerHour))").monospacedDigit().frame(width: 28, alignment: .trailing)
-            }
+            Text("The rates wander inside each range: Steady picks a new rate every 20 to 30 minutes, Moderate every 8 to 15, Lively every 3 to 8 with bigger jumps. Set Low and High equal for a fixed rate. The current rates are shown in Airport info.")
+                .font(.ui(size: 10)).foregroundStyle(.secondary)
 
             Divider()
             Text("APPROACH AREA").font(.ui(size: 13, weight: .semibold))
