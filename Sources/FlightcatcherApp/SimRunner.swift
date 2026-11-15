@@ -12,6 +12,13 @@ final class SimRunner: ObservableObject {
     @Published private(set) var lossCount = 0
     /// "ARR 22/h ↑  DEP 9/h ↓", empty when traffic is off.
     @Published private(set) var trafficRates = ""
+    /// The running session's score.
+    @Published private(set) var score = ScoreCard()
+    /// Set while the debrief is shown after END.
+    @Published private(set) var debrief: ScoreCard?
+    /// This airport's best scores, and where the ended session placed in them.
+    @Published private(set) var bestScores: [ScoreRecord] = []
+    @Published private(set) var debriefPlace: Int?
     @Published private(set) var wind: Wind = .calm
     @Published private(set) var commandHistory: [String: [CommandRecord]] = [:]
     @Published private(set) var runwayStatuses: [RunwayStatus] = []
@@ -176,6 +183,50 @@ final class SimRunner: ObservableObject {
         reschedule()
     }
 
+    // MARK: Sessions and scoring
+
+    /// END: pause, close the score and show the debrief. A session with aircraft handled goes in the best-scores table.
+    func endSession() {
+        isRunning = false
+        let card = sim.endSession()
+        let icao = airport?.icao ?? "----"
+        debriefPlace = nil
+        if card.arrivalsHandled + card.departuresHandled > 0 {
+            let record = ScoreRecord(date: Date(), total: card.total, grade: card.grade?.rawValue ?? "-",
+                                     minutes: card.durationSeconds(now: sim.tickCount) / 60, multiplier: card.multiplier,
+                                     arrivals: card.arrivalsHandled, departures: card.departuresHandled, losses: card.losses,
+                                     seed: trafficSeed, fixedSeed: traffic.fixedSeed != nil,
+                                     traffic: ScoreHistory.trafficSummary(traffic))
+            debriefPlace = ScoreHistory.add(record, icao: icao)
+        }
+        bestScores = ScoreHistory.load(icao: icao)
+        score = card
+        debrief = card
+    }
+
+    /// Close the debrief and carry on where the session was; points count again.
+    func resumeSession() {
+        sim.resumeSession()
+        debrief = nil
+        isRunning = true
+        publish()
+    }
+
+    /// A fresh session at the same airport.
+    func newSession() {
+        debrief = nil
+        loadAirport(airport?.icao.lowercased() ?? "kbos")
+        isRunning = true
+    }
+
+    /// A fresh session with the same traffic seed as the one just ended. The seed stays fixed (Settings > Traffic).
+    func replaySeed() {
+        var t = traffic
+        t.fixedSeed = trafficSeed
+        traffic = t
+        newSession()
+    }
+
     /// Starts a fresh simulation at the named bundled airport. The old traffic and radio log are discarded.
     func loadAirport(_ name: String) {
         var loaded: AirportPackage?
@@ -295,6 +346,7 @@ final class SimRunner: ObservableObject {
         conflicts = sim.conflicts
         lossCount = sim.lossOfSeparationCount
         trafficRates = sim.trafficRatesText
+        score = sim.score
         wind = sim.wind
         commandHistory = sim.commandHistory
         runwayStatuses = sim.runwayStatuses

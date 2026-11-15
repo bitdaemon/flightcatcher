@@ -48,6 +48,16 @@ struct ContentView: View {
         .animation(.easeInOut(duration: 0.2), value: runner.weatherNotice)
         .preferredColorScheme(themeStore.isLight ? .light : .dark)
         .frame(minWidth: 700, minHeight: 500)
+        .sheet(isPresented: Binding(get: { runner.debrief != nil }, set: { _ in })) {
+            if let card = runner.debrief {
+                DebriefView(card: card, airportTitle: runner.airport?.title ?? "----", best: runner.bestScores,
+                            place: runner.debriefPlace, seed: runner.trafficSeed,
+                            onResume: { runner.resumeSession() },
+                            onNewSession: { runner.newSession() },
+                            onReplaySeed: { runner.replaySeed() })
+                    .interactiveDismissDisabled(true)
+            }
+        }
         .onChange(of: runner.airport?.icao) { _, _ in mouse.cancelAll(); tags.reset() }
         .onAppear {
             print("flightcATCher: window appeared")
@@ -138,7 +148,7 @@ struct ContentView: View {
             InfoPanelView(airport: runner.airport, conflicts: runner.conflicts, lossCount: runner.lossCount,
                           wind: runner.wind, runways: runner.runwayStatuses,
                           windSource: runner.windSource, nextWeatherUpdate: runner.nextWeatherUpdate,
-                          trafficRates: runner.trafficRates)
+                          trafficRates: runner.trafficRates, score: runner.score)
         }
         FloatingPanel(id: "runways", title: "Runways", window: window,
                       defaultOrigin: CGPoint(x: max(12, window.width - 312), y: 620),
@@ -167,9 +177,10 @@ struct ContentView: View {
                       minSize: CGSize(width: 440, height: 240), layout: layout) {
             MacroEditorView(runner: runner)
         }
-        FloatingPanel(id: "help", title: "Commands", window: window,
-                      defaultOrigin: CGPoint(x: 12, y: 96), width: 380, layout: layout) {
-            HelpView()
+        FloatingPanel(id: "help", title: "Commands and scoring", window: window,
+                      defaultOrigin: CGPoint(x: 12, y: 96), width: 420, defaultHeight: 520, resizable: true,
+                      minSize: CGSize(width: 320, height: 200), layout: layout) {
+            ScrollView { HelpView() }
         }
     }
 
@@ -239,6 +250,7 @@ struct ContentView: View {
             divider
             textToggle("STAR", on: showStars, help: "Show all STARs") { showStars.toggle() }
             textToggle("SID", on: showSids, help: "Show all SIDs") { showSids.toggle() }
+            textToggle("APP", on: showApproaches, help: "Show all approaches") { showApproaches.toggle() }
 
             Spacer(minLength: 6)
 
@@ -253,6 +265,18 @@ struct ContentView: View {
             }
             .buttonStyle(.plain)
             .help("Settings (Cmd+,)")
+            divider
+            Button { runner.endSession() } label: {
+                Text("END")
+                    .font(.ui(size: 11, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(theme.alert)
+                    .padding(.horizontal, 8).padding(.vertical, 3)
+                    .overlay(Rectangle().stroke(theme.alert.opacity(0.7), lineWidth: 1))
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("End the session and show the debrief")
+            .disabled(runner.debrief != nil)
         }
         .padding(.horizontal, 10)
         .frame(height: 36 * UIScale.factor)

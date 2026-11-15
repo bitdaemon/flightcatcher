@@ -17,7 +17,7 @@ Native Swift, SwiftUI Canvas scope, deterministic simulation engine. No accounts
 - Procedures are drawn on the scope (STARs, SIDs, approaches, fixes) and can be switched on and off individually. An aircraft's assigned procedure can be shown on request.
 
 ### Traffic
-- Random arrivals and departures at adjustable rates per hour, with presets (Quiet, Moderate, Busy and others), selectable aircraft categories and types, and an optional fixed seed to repeat a session.
+- Random arrivals and departures, each with a low-high range per hour. The rates wander inside their ranges (Steady, Moderate or Lively) and the current rates are shown in Airport info. Presets (Quiet, Moderate, Busy, Rush and others), selectable aircraft categories and types, and an optional fixed seed to repeat a session.
 - Start-up traffic: a random number of arrivals already inside the approach area, on STARs or heading for an initial approach fix, placed with a spawn-conflict check so nothing starts in a collision.
 - Departures wait at the holding point of a runway in use until you line them up and clear them for take-off. The wind decides the runway; a runway with SIDs gives the departure a SID, one without means runway heading.
 - Aircraft types with their own climb, descent, turn and speed performance, and airline callsigns that suit the airport's country.
@@ -62,6 +62,13 @@ Native Swift, SwiftUI Canvas scope, deterministic simulation engine. No accounts
 ### Random events
 - A configurable percentage of arrivals have an event: a pilot-decision go-around, a windshear go-around, or an emergency (engine failure, medical, low fuel, hydraulic failure, smoke, bird strike, loss of pressurisation, unsafe gear) declared a few minutes after entering the area. Emergency aircraft get a red ring and tag on the scope and a red badge on the strip.
 - Set the percentages in Settings > Events (3%, 2% and 2% by default).
+
+### Scoring and debrief
+- Points for moving traffic safely: +100 an arrival handed to the tower, +20 when it lands, up to +30 for an efficient arrival, +80 a departure handed off (+20 more if cleared to its plan level), +30 extra for a landed emergency.
+- Penalties: −300 a loss of separation (and −50 for every 10 s it lasts), −150 a departure leaving the area without a handoff, −100 a go-around you caused, −50 an arrival left at the end of its route, −50 an emergency ignored for 2 minutes, smaller ones for conflict alerts, refusals, waiting departures and unvectored runway-heading departures. Pilot and windshear go-arounds are free.
+- Score = points × a difficulty multiplier from the traffic rate and variation, random events, live weather and gusts.
+- The score, multiplier, grade and last change are shown in Airport info; big changes also go on the radio.
+- **END** (top right of the control bar) pauses and opens the debrief: grade (A Supervisor to E Removed from position), breakdown, score and traffic chart, worst moments, arrival efficiency and the airport's best scores. Resume, start a new session, or replay the same traffic seed to beat your score.
 
 ### Settings (Cmd+,)
 - Display: text size (Cmd+= larger, Cmd+- smaller, Cmd+0 reset), colour scheme, compass, tag options.

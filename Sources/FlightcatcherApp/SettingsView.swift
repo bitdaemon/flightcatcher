@@ -15,20 +15,17 @@ struct SettingsView: View {
                 .tabItem { Label("Layers", systemImage: "square.3.layers.3d") }
             PanelsSettingsTab(layout: layout)
                 .tabItem { Label("Panels", systemImage: "rectangle.3.group") }
-            TrafficView(runner: runner)
-                .padding(16)
+            ScrollView { TrafficView(runner: runner).padding(16) }
                 .tabItem { Label("Traffic", systemImage: "airplane") }
-            WeatherSettingsView(runner: runner)
-                .padding(16)
+            ScrollView { WeatherSettingsView(runner: runner).padding(16) }
                 .tabItem { Label("Weather", systemImage: "wind") }
-            EventsSettingsView(runner: runner)
-                .padding(16)
+            ScrollView { EventsSettingsView(runner: runner).padding(16) }
                 .tabItem { Label("Events", systemImage: "exclamationmark.triangle") }
-            DebugSettingsView(runner: runner)
-                .padding(16)
+            ScrollView { DebugSettingsView(runner: runner).padding(16) }
                 .tabItem { Label("Debug", systemImage: "ladybug") }
         }
-        .frame(width: 520, height: 560)
+        // Resizable: at least 520 x 480, opening at 560 x 680. Long tabs scroll.
+        .frame(minWidth: 520, idealWidth: 560, maxWidth: .infinity, minHeight: 480, idealHeight: 680, maxHeight: .infinity)
     }
 }
 

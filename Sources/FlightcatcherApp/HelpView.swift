@@ -27,6 +27,25 @@ struct HelpView: View {
         ("ho", "handoff: a departure leaves your area once it is above its handoff level and cleared to its plan level; an established arrival goes to the tower and stays on the scope until landed"),
     ]
 
+    private let scoreRows: [(String, String)] = [
+        ("arrival handed to the tower, established", "+100"),
+        ("arrival lands", "+20"),
+        ("arrival flown efficiently: up to 1.2 times its clean time, less up to 2 times", "up to +30"),
+        ("departure handed off", "+80"),
+        ("departure handed off cleared to its plan level", "+20"),
+        ("emergency aircraft landed (extra)", "+30"),
+        ("loss of separation", "\u{2212}300"),
+        ("every 10 s a loss of separation lasts", "\u{2212}50"),
+        ("conflict alert (predicted loss)", "\u{2212}10"),
+        ("departure leaves the area without a handoff", "\u{2212}150"),
+        ("go-around you caused (unstable, high, fast, runway occupied); pilot and windshear go-arounds are free", "\u{2212}100"),
+        ("arrival reaches the end of its route with no clearance", "\u{2212}50"),
+        ("emergency given no instruction for 2 min", "\u{2212}50"),
+        ("runway-heading departure not vectored by 10 NM", "\u{2212}20"),
+        ("instruction refused by the pilot", "\u{2212}5"),
+        ("each minute a departure waits at the hold after 3 min", "\u{2212}1"),
+    ]
+
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             Text("COMMANDS").font(mono).foregroundStyle(theme.heading)
@@ -61,6 +80,23 @@ struct HelpView: View {
             Text("Panels: drag a title bar to move, pin to lock, resize from the corner.")
                 .font(mono).foregroundStyle(theme.dimText).padding(.top, 4)
             Text("List row 2 shows the last instructions; ... = pilot not yet complying.")
+                .font(mono).foregroundStyle(theme.dimText)
+
+            Text("SCORING").font(mono).foregroundStyle(theme.heading).padding(.top, 8)
+            ForEach(scoreRows, id: \.0) { what, points in
+                HStack(alignment: .top, spacing: 8) {
+                    Text(points).font(mono).foregroundStyle(points.hasPrefix("+") ? theme.ok : theme.alert)
+                        .frame(width: 110 * UIScale.factor, alignment: .leading)
+                    Text(what).font(mono).foregroundStyle(theme.text)
+                }
+            }
+            Text("Score = points \u{00D7} multiplier. The multiplier grows with the traffic rate (Settings > Traffic), a Moderate or Lively variation, random events, live weather and gusts.")
+                .font(mono).foregroundStyle(theme.dimText).padding(.top, 4)
+            Text("The score, multiplier, grade and last change are in Airport info. Changes of 100 points or more are also on the radio.")
+                .font(mono).foregroundStyle(theme.dimText)
+            Text("END (top right) pauses and shows the debrief: grade, breakdown, chart, worst moments, efficiency, best scores. Resume carries on; Replay this seed repeats the same traffic.")
+                .font(mono).foregroundStyle(theme.dimText)
+            Text("Grade: points against the most the handled aircraft could earn. A 85%+ Supervisor, B 70% Senior controller, C 50% Controller, D 30% Trainee, E Removed from position. One loss of separation caps it at C, three give E.")
                 .font(mono).foregroundStyle(theme.dimText)
         }
         .padding(10)

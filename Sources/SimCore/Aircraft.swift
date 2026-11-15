@@ -84,6 +84,9 @@ public struct Aircraft: Equatable, Identifiable {
     /// Inside this distance before the threshold the approach must be stable, or the aircraft goes around.
     static let stableGateNM = 2.5
     static let maxStableSpeedKt = 190.0
+    /// While still intercepting, the stable gate only applies this close to the centreline: an aircraft cleared from
+    /// far off to the side, level with or behind the threshold, is not on the final approach yet.
+    static let gateCorridorNM = 1.0
 
     public init(callsign: String, eastNM: Double, northNM: Double,
                 headingDeg: Double, altitudeFt: Double, speedKt: Double,
@@ -477,8 +480,10 @@ public struct Aircraft: Equatable, Identifiable {
             }
         }
 
-        // Stable approach gate.
-        if p.along <= Self.stableGateNM {
+        // Stable approach gate: once established, or while intercepting only when actually on the final approach
+        // (near the centreline, not past the threshold).
+        let onFinal = approach?.phase != .intercepting || (abs(p.cross) <= Self.gateCorridorNM && p.along > -0.5)
+        if p.along <= Self.stableGateNM, onFinal {
             if approach?.phase != .glideslope {
                 let above = Int((altitudeFt - beam).rounded())
                 goAround(reason: above > 300 ? "\(above) ft above the glidepath inside \(Self.stableGateNM) NM"

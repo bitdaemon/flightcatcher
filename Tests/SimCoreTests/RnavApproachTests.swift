@@ -67,3 +67,39 @@ final class RnavApproachTests: XCTestCase {
         guard case .accepted = r else { return XCTFail("expected acceptance, got \(r)") }
     }
 }
+
+/// The stable-approach gate must not fire for an aircraft cleared from far off to the side of the runway.
+final class StableGateTests: XCTestCase {
+    private func boston() throws -> Simulation {
+        let airport = try TestSupport.airport("kbos")
+        return Simulation(seed: 1, transitionAltitudeFt: airport.transitionAltitudeFt, airport: airport,
+                          initialWind: .calm, windDrifts: false)
+    }
+
+    func testClearedFromAbeamTheThresholdDoesNotGoAround() throws {
+        let s = try boston()
+        let ils = try XCTUnwrap(s.ilsGeometry(runway: "04R"))
+        // 20 NM to the side of the threshold, level with it, at 8000 ft.
+        let side = LocalProjection.offset(bearingDeg: ils.courseDeg - 90, distanceNM: 20)
+        s.spawn(Aircraft(callsign: "SWR310", eastNM: ils.thresholdEastNM + side.east, northNM: ils.thresholdNorthNM + side.north,
+                         headingDeg: ils.courseDeg + 90, altitudeFt: 8000, speedKt: 210))
+        guard case .accepted = s.issue(IssuedCommand(callsign: "SWR310", command: .approach(runway: "04R"))) else {
+            return XCTFail("clearance refused")
+        }
+        s.run(seconds: 30)
+        XCTAssertFalse(s.radioLog.contains { $0.tag == .goAround }, s.radioLog.suffix(3).map(\.text).joined(separator: " | "))
+        XCTAssertEqual(s.score.count(.goAroundCaused), 0)
+    }
+
+    func testHighOnTheCentrelineInsideTheGateStillGoesAround() throws {
+        let s = try boston()
+        let ils = try XCTUnwrap(s.ilsGeometry(runway: "04R"))
+        let behind = LocalProjection.offset(bearingDeg: ils.courseDeg + 180, distanceNM: 2.0)
+        var ac = Aircraft(callsign: "HIGH1", eastNM: ils.thresholdEastNM + behind.east, northNM: ils.thresholdNorthNM + behind.north,
+                          headingDeg: ils.courseDeg, altitudeFt: 4000, speedKt: 160)
+        ac.clearForApproach(ils, extraRoute: [])
+        s.spawn(ac)
+        s.run(seconds: 3)
+        XCTAssertTrue(s.radioLog.contains { $0.tag == .goAround })
+    }
+}

@@ -30,6 +30,7 @@ struct FlightcatcherApp: App {
         Settings {
             SettingsView(runner: runner, layout: layout, tags: tags)
         }
+        .windowResizability(.contentMinSize)
         .commands {
             CommandGroup(after: .toolbar) {
                 Button("Larger Text") { UIScaleStore.shared.larger() }.keyboardShortcut("=", modifiers: .command)

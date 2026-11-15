@@ -104,6 +104,9 @@ final class NoProcedureTests: XCTestCase {
         for ac in s.aircraft {
             XCTAssertLessThan(hypot(ac.eastNM, ac.northNM), s.areaRadiusNM)
             XCTAssertTrue(ac.procedureId?.hasPrefix("DCT ") == true)
+            // Inbound: further out than the fix it is flying to, so it never flies away from the airport to reach it.
+            let fix = try XCTUnwrap(ac.route.first)
+            XCTAssertGreaterThan(hypot(ac.eastNM, ac.northNM), hypot(fix.eastNM, fix.northNM) + 4.9, ac.callsign)
         }
     }
 }

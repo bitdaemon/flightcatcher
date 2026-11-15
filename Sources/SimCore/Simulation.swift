@@ -64,6 +64,23 @@ public final class Simulation {
     public var areaCeilingFt = 15000
     private var alertedKinds: [String: Conflict.Kind] = [:]
 
+    // MARK: Score state
+    /// The session's score. Starts with the simulation; `endSession` closes it for the debrief.
+    public private(set) var score = ScoreCard()
+    private var nextScoreID = 0
+    /// Where and when each arrival was handed in (or placed), for its efficiency.
+    private var arrivalStart: [String: (tick: Int, east: Double, north: Double)] = [:]
+    private var instructionCounts: [String: Int] = [:]
+    private var lastInstructionTick: [String: Int] = [:]
+    /// Seconds each current loss of separation has lasted, by conflict id.
+    private var lossSeconds: [String: Int] = [:]
+    private var holdingSince: [String: Int] = [:]
+    private var runwayHeadingPenalised: Set<String> = []
+    private var emergencySince: [String: Int] = [:]
+    private var emergencyChecked: Set<String> = []
+    private var rateSeconds = 0
+    private var rateSum = 0.0
+
     /// Current wind (one wind for the whole airspace; stronger aloft).
     public private(set) var wind: Wind = .calm
     /// Runways the wind currently allows, and the reason for each closed one.
@@ -497,6 +514,7 @@ public final class Simulation {
         aircraft.levelFloorFt = levelFloorFt
         aircraft.approachLevelFloorFt = approachLevelFloorFt
         self.aircraft.append(aircraft)
+        if aircraft.departure == nil { arrivalStart[aircraft.callsign] = (tickCount, aircraft.eastNM, aircraft.northNM) }
     }
 
     // MARK: Test spawner (troubleshooting)
@@ -617,8 +635,9 @@ public final class Simulation {
         return .blocked
     }
 
-    /// Start-up traffic at an airport with no STAR: aircraft 15 NM to 5 NM short of the area edge, flying direct to an
-    /// initial approach fix, at 5,000 to 10,000 ft. Same spacing and conflict rules as on STARs.
+    /// Start-up traffic at an airport with no STAR: aircraft between 5 NM beyond an initial approach fix and 3 NM inside
+    /// the area edge, flying inbound direct to that fix, at 5,000 to 10,000 ft. Same spacing and conflict rules as on
+    /// STARs.
     private func placeFeederStartTraffic(target: Int) -> Int {
         let fixes = feederFixes()
         guard !fixes.isEmpty else { return 0 }
@@ -629,9 +648,13 @@ public final class Simulation {
             attempts += 1
             let fix = fixes[roll(fixes.count)]
             let bearing = Aircraft.bearingDeg(eastNM: fix.eastNM, northNM: fix.northNM) + Double(roll(61) - 30)
-            let distance = 15 + TrafficPlanner.unit(&trafficRng) * max(0, areaRadiusNM - 20)
+            // Always beyond the fix, flying inbound: at least 5 NM further out than the fix, at most 3 NM inside the
+            // area edge. A fix too close to the edge for that is skipped.
+            let fixDistance = hypot(fix.eastNM, fix.northNM)
+            let nearest = fixDistance + 5, farthest = areaRadiusNM - 3
+            guard farthest > nearest else { continue }
+            let distance = nearest + TrafficPlanner.unit(&trafficRng) * (farthest - nearest)
             let start = LocalProjection.offset(bearingDeg: bearing, distanceNM: distance)
-            if hypot(start.east - fix.eastNM, start.north - fix.northNM) < 3 { continue }
             let identity = randomArrivalIdentity()
             let level = max(min(Double(5000 + roll(11) * 500), Double(identity.type.ceilingFt - 1000), Double(areaCeilingFt)), Double(levelFloorFt))
             let speed = max(Double(identity.type.minSpeedKt + 20), min(Double(240 - roll(3) * 10), Double(identity.type.maxSpeedKt)))
@@ -885,6 +908,7 @@ public final class Simulation {
         ac.approachLevelFloorFt = approachLevelFloorFt
         ac.plannedEvent = planEvent()
         aircraft.append(ac)
+        arrivalStart[callsign] = (tickCount, east, north)
         return true
     }
 
@@ -1105,8 +1129,14 @@ public final class Simulation {
         switch result {
         case .accepted(let delay):
             debug("cmd", issued.callsign, "accepted \(issued.command), carried out in \(delay) s")
+            instructionCounts[issued.callsign, default: 0] += 1
+            lastInstructionTick[issued.callsign] = tickCount
+            score.instructions += 1
         case .refused(let reason):
             debug("cmd", issued.callsign, "REFUSED \(issued.command): \(reason)")
+            if aircraft.contains(where: { $0.callsign == issued.callsign }) {
+                addScore(.refused, callsign: issued.callsign)
+            }
         }
         return result
     }
@@ -1212,12 +1242,24 @@ public final class Simulation {
                 switch c.kind {
                 case .predicted:
                     log(.system, "CONFLICT \(c.first) / \(c.second): separation lost in \(c.secondsToLoss) s on current tracks", tag: .conflict)
+                    addScore(.conflictAlert, detail: "\(c.first) / \(c.second)")
                 case .loss:
                     lossOfSeparationCount += 1
                     log(.system, "LOSS OF SEPARATION \(c.first) / \(c.second): \(String(format: "%.1f", c.lateralNM)) NM, \(Int(c.verticalFt.rounded())) ft", tag: .lossOfSeparation)
+                    score.losses += 1
+                    addScore(.lossOfSeparation, detail: "\(c.first) / \(c.second)")
+                }
+            }
+            // A loss that goes on keeps costing points.
+            if c.kind == .loss {
+                let seconds = (lossSeconds[c.id] ?? 0) + 1
+                lossSeconds[c.id] = seconds
+                if seconds % ScoreRules.lossStepSeconds == 0 {
+                    addScore(.lossContinues, detail: "\(c.first) / \(c.second), \(seconds) s")
                 }
             }
         }
+        lossSeconds = lossSeconds.filter { current[$0.key] == .loss }
         alertedKinds = current
     }
 
@@ -1229,6 +1271,109 @@ public final class Simulation {
 
     private func mix(_ value: UInt64) {
         digest = (digest ^ value) &* 0x0000_0100_0000_01B3
+    }
+
+    // MARK: Score
+
+    private func addScore(_ kind: ScoreKind, points: Int? = nil, callsign: String? = nil, detail: String = "") {
+        guard score.endTick == nil else { return }
+        let value = points ?? ScoreRules.points[kind] ?? 0
+        let event = ScoreEvent(id: nextScoreID, tick: tickCount, kind: kind, points: value, callsign: callsign,
+                               detail: detail.isEmpty ? (callsign ?? "") : detail)
+        nextScoreID += 1
+        score.add(event)
+        if abs(value) >= ScoreRules.announceAtPoints { log(.system, event.text, callsign: callsign) }
+    }
+
+    /// A handoff that the pilot has acted on. A departure scores its handoff and, if cleared to its plan level, a
+    /// bonus. An arrival scores its tower handoff and an efficiency bonus from its time since hand-in.
+    private func scoreHandoff(_ ac: Aircraft) {
+        if let d = ac.departure {
+            score.departuresHandled += 1
+            addScore(.departureHandoff, callsign: ac.callsign)
+            if Int(ac.targetAltitudeFt.rounded()) >= d.expectedLevelFt { addScore(.departureAtPlanLevel, callsign: ac.callsign) }
+            return
+        }
+        score.arrivalsHandled += 1
+        addScore(.arrivalHandoff, callsign: ac.callsign)
+        guard let start = arrivalStart[ac.callsign], let app = ac.approach else { return }
+        let distance = hypot(start.east - app.ils.thresholdEastNM, start.north - app.ils.thresholdNorthNM)
+        let clean = ScoreRules.cleanSeconds(distanceNM: distance)
+        let actual = tickCount - start.tick
+        let bonus = ScoreRules.efficiencyBonus(actualSeconds: Double(actual), cleanSeconds: clean)
+        score.arrivals.append(ArrivalTiming(callsign: ac.callsign, actualSeconds: actual, cleanSeconds: Int(clean.rounded()),
+                                            bonus: bonus, instructions: instructionCounts[ac.callsign] ?? 0))
+        if bonus > 0 { addScore(.efficiency, points: bonus, callsign: ac.callsign) }
+    }
+
+    /// Time-based rules, the traffic-rate average for the multiplier, and a chart sample each minute.
+    private func updateScoreEachSecond() {
+        guard score.endTick == nil else { return }
+        for ac in aircraft {
+            // Departures kept at the holding point.
+            if ac.groundPhase == .holdingShort || ac.groundPhase == .linedUp {
+                let since = holdingSince[ac.callsign] ?? tickCount
+                holdingSince[ac.callsign] = since
+                let waited = tickCount - since
+                if waited > ScoreRules.departureGraceSeconds, (waited - ScoreRules.departureGraceSeconds) % 60 == 0 {
+                    addScore(.departureDelay, callsign: ac.callsign)
+                }
+            } else {
+                holdingSince[ac.callsign] = nil
+            }
+            // Runway-heading departures left without a vector.
+            if ac.onRunwayHeading, !ac.isOnGround, !runwayHeadingPenalised.contains(ac.callsign),
+               hypot(ac.eastNM, ac.northNM) > ScoreRules.runwayHeadingLimitNM {
+                runwayHeadingPenalised.insert(ac.callsign)
+                addScore(.runwayHeadingUnvectored, callsign: ac.callsign)
+            }
+            // Emergencies with no instruction for two minutes.
+            if ac.emergency != nil, !ac.handedToTower, !emergencyChecked.contains(ac.callsign) {
+                let since = emergencySince[ac.callsign] ?? tickCount
+                emergencySince[ac.callsign] = since
+                if tickCount - since >= ScoreRules.emergencyWaitSeconds {
+                    emergencyChecked.insert(ac.callsign)
+                    if (lastInstructionTick[ac.callsign] ?? -1) < since {
+                        addScore(.emergencyIgnored, callsign: ac.callsign)
+                    }
+                }
+            }
+        }
+        if traffic.enabled {
+            rateSeconds += 1
+            rateSum += arrivalRatePerHour + departureRatePerHour
+        }
+        if (tickCount - score.startTick) % 60 == 0 {
+            updateScoreMultiplier()
+            score.samples.append(ScoreSample(minute: (tickCount - score.startTick) / 60, rawScore: score.raw,
+                                             arrivalsPerHour: arrivalRatePerHour, departuresPerHour: departureRatePerHour))
+        }
+    }
+
+    private func updateScoreMultiplier() {
+        score.multiplier = ScoreMultiplier.value(averageRatePerHour: rateSeconds > 0 ? rateSum / Double(rateSeconds) : nil,
+                                                 variable: traffic.isVariable, variation: traffic.variation,
+                                                 events: events, liveWeather: weatherMode == .live, gusting: wind.isGusting)
+    }
+
+    /// Ends the session: no more points, multiplier settled. Returns the card for the debrief.
+    @discardableResult
+    public func endSession() -> ScoreCard {
+        if score.endTick == nil {
+            updateScoreMultiplier()
+            let minute = (tickCount - score.startTick + 59) / 60
+            if score.samples.last?.minute != minute {
+                score.samples.append(ScoreSample(minute: minute, rawScore: score.raw,
+                                                 arrivalsPerHour: arrivalRatePerHour, departuresPerHour: departureRatePerHour))
+            }
+            score.endTick = tickCount
+        }
+        return score
+    }
+
+    /// Carries on after a debrief: points count again from now.
+    public func resumeSession() {
+        score.endTick = nil
     }
 
     // MARK: Macros
@@ -1385,6 +1530,7 @@ public final class Simulation {
             if case .handoff = p.command {
                 log(.system, aircraft[i].departure == nil ? "\(p.callsign) handed to tower, stays on the scope until landed"
                                                           : "\(p.callsign) handed off", callsign: p.callsign)
+                scoreHandoff(aircraft[i])
             }
         }
 
@@ -1409,9 +1555,12 @@ public final class Simulation {
                     log(.system, "\(ac.callsign) established on the localiser, runway \(runway)", callsign: ac.callsign)
                 case .landed(let runway):
                     log(.system, "\(ac.callsign) landed runway \(runway)", callsign: ac.callsign)
+                    addScore(.landed, callsign: ac.callsign)
+                    if ac.emergency != nil { addScore(.emergencyLanded, callsign: ac.callsign) }
                     if macroRuns[ac.callsign] != nil { stopMacro(ac.callsign, reason: "landed", flagged: false) }
                 case .routeEnded(let fix, let heading):
                     log(.pilot, Phraseology.routeEnded(fix: fix, headingDeg: heading, for: ac), callsign: ac.callsign)
+                    if ac.departure == nil { addScore(.routeEndedNoClearance, callsign: ac.callsign, detail: "\(ac.callsign) at \(fix)") }
                 case .crossingUnable(let fix, let feet):
                     log(.pilot, Phraseology.crossingUnable(fix: fix, altitudeFt: feet, for: ac,
                                                            transitionAltitudeFt: transitionAltitudeFt), callsign: ac.callsign, tag: .unable)
@@ -1424,6 +1573,10 @@ public final class Simulation {
                 case .wentAround(let reason):
                     log(.pilot, "Going around, \(Phraseology.spokenCallsign(ac))", callsign: ac.callsign, tag: .goAround)
                     log(.system, "\(ac.callsign) go-around: \(reason)", callsign: ac.callsign, tag: .goAround)
+                    if ScoreRules.isControllerGoAround(reason: reason) {
+                        score.controllerGoArounds += 1
+                        addScore(.goAroundCaused, callsign: ac.callsign, detail: "\(ac.callsign), \(reason)")
+                    }
                     if macroRuns[ac.callsign] != nil { stopMacro(ac.callsign, reason: "go-around", flagged: false) }
                 }
             }
@@ -1434,6 +1587,8 @@ public final class Simulation {
                   (ac.eastNM * ac.eastNM + ac.northNM * ac.northNM).squareRoot() > areaRadiusNM else { continue }
             missedHandoffs += 1
             log(.system, "\(ac.callsign) left the area without a handoff", callsign: ac.callsign)
+            score.missedHandoffs += 1
+            addScore(.missedHandoff, callsign: ac.callsign)
         }
         func isGone(_ ac: Aircraft) -> Bool {
             if ac.landed { return true }
@@ -1444,6 +1599,7 @@ public final class Simulation {
         aircraft.removeAll(where: isGone)
         runMacros()
         updateConflicts()
+        updateScoreEachSecond()
 
         // Placeholder for the real update order: weather, schedule, ghosts, conflicts.
         mix(rng.next())

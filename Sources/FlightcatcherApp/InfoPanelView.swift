@@ -13,6 +13,8 @@ struct InfoPanelView: View {
     var nextWeatherUpdate: Date? = nil
     /// Current traffic rates and where they are heading; empty when traffic is off.
     var trafficRates: String = ""
+    /// The session score: total, multiplier and the latest change.
+    var score: ScoreCard? = nil
     @ObservedObject private var themeStore = ThemeStore.shared
     private var theme: Theme { themeStore.theme }
 
@@ -30,14 +32,16 @@ struct InfoPanelView: View {
             if let airport, airport.city != nil {
                 Text(airport.name).font(mono).foregroundStyle(theme.dimText)
             }
+            // Airport and its runways.
             row("ELEV", elevationText)
             row("TA", airport.map { "\($0.transitionAltitudeFt) ft" } ?? "--")
+            runwayLines
+
+            // Wind and where it comes from.
+            sectionLine
             row("WIND", wind.text + (wind.speedKt < 0.5 ? "" : " kt"))
             if !windSource.isEmpty {
                 row("SRC", windSource)
-            }
-            if !trafficRates.isEmpty {
-                row("TRAF", trafficRates)
             }
             if let next = nextWeatherUpdate {
                 TimelineView(.periodic(from: .now, by: 1)) { context in
@@ -45,8 +49,25 @@ struct InfoPanelView: View {
                     row("NEXT", left == 0 ? "due now" : String(format: "in %d:%02d", left / 60, left % 60))
                 }
             }
-            runwayLines
-            Divider()
+
+            // Traffic rates, only while traffic is on.
+            if !trafficRates.isEmpty {
+                sectionLine
+                row("TRAF", trafficRates)
+            }
+
+            // Score.
+            if let score {
+                sectionLine
+                row("SCORE", "\(score.total.formatted())  \u{00D7}\(String(format: "%.2f", score.multiplier))"
+                    + (score.grade.map { "  \($0.rawValue)" } ?? ""))
+                if let last = score.events.last {
+                    row("LAST", last.text, valueColour: last.points < 0 ? theme.alert : theme.ok)
+                }
+            }
+
+            // Separation monitor.
+            sectionLine
             HStack {
                 Text("SEPARATION").font(mono).foregroundStyle(theme.heading)
                 Spacer()
@@ -69,6 +90,11 @@ struct InfoPanelView: View {
         }
         .padding(8)
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// A thin line between the panel's sections.
+    private var sectionLine: some View {
+        Rectangle().fill(theme.panelBorder).frame(height: 1).padding(.vertical, 3)
     }
 
     /// Open runways one per line with their head and crosswind, closed ones together on one line.
