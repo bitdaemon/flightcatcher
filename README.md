@@ -1,5 +1,7 @@
 # flightcATCher
 
+By Richard T. ([bitdaemon](https://github.com/bitdaemon)).
+
 A 2D radar approach and departure control game for macOS. You vector arrivals onto the runway in use, clear them for ILS, RNAV or visual approaches, hand them to the tower, and release departures, all with ICAO-style phraseology. Runways are chosen from the wind, and the wind can follow live METARs.
 
 Native Swift, SwiftUI Canvas scope, deterministic simulation engine. No accounts, no telemetry; the only network call is the optional METAR fetch.
@@ -75,7 +77,7 @@ Native Swift, SwiftUI Canvas scope, deterministic simulation engine. No accounts
 
 ## Build and run
 ```sh
-git clone https://github.com/YOUR-GITHUB-USER/flightcatcher.git
+git clone https://github.com/bitdaemon/flightcatcher.git
 cd flightcatcher
 swift run FlightcatcherApp
 ```
@@ -94,4 +96,6 @@ Or open `Package.swift` in Xcode, choose the `FlightcatcherApp` scheme and "My M
 See [DATA-SOURCES.md](DATA-SOURCES.md). Airline names and callsigns are used only as flavour; this project is not affiliated with or endorsed by any airline, air navigation service provider, or aviation authority.
 
 ## Licence
-MIT, see [LICENSE](LICENSE). Data sets keep their own terms, listed in DATA-SOURCES.md.
+Copyright 2026 Richard T. Licensed under the Apache License, Version 2.0, see [LICENSE](LICENSE).
+
+flightcATCher is the original work of Richard T. If you redistribute it or build on it, keep the [NOTICE](NOTICE) file with your copy and credit Richard T. as the original author, and mark any files you changed (Apache License, section 4). Data sets keep their own terms, listed in DATA-SOURCES.md.
