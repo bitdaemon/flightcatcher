@@ -343,7 +343,7 @@ struct ScopeView: View {
             if let ac = targetAircraft {
                 let p = screenPoint(of: ac, size: size)
                 if controls.mode == .ring {
-                    RadialRingView(center: p, items: ringItems(for: ac)) { picked in
+                    RadialRingView(center: p, items: ringItems(for: ac), tagFrame: tagFrame(ac, size: size)) { picked in
                         switch picked {
                         case .command(let command):
                             controls.add(command, aircraft: ac)
@@ -358,6 +358,7 @@ struct ScopeView: View {
                     }
                 }
                 if controls.mode == .colour {
+                    PickerCard(title: "Marker colour") {
                     HStack(spacing: 8) {
                         Button { onMark?(nil, ac.callsign); controls.backToRing() } label: {
                             Image(systemName: "nosign").font(.system(size: 15)).foregroundStyle(theme.dimText)
@@ -375,31 +376,25 @@ struct ScopeView: View {
                             .help(marker.name)
                         }
                     }
-                    .padding(8)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(theme.panel))
-                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(theme.panelBorder, lineWidth: 1))
-                    .offset(x: min(max(8, p.x - 90), size.width - 220), y: min(p.y + 62, size.height - 50))
+                    .padding(2)
+                    }
+                    .fixedSize()
+                    .offset(x: min(max(8, p.x - 90), size.width - 220), y: min(p.y + 80, size.height - 70))
                 }
                 if controls.mode == .macro {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("MACRO").font(.ui(size: 11, design: .monospaced)).foregroundStyle(theme.heading)
+                    PickerCard(title: "Macro") {
+                    VStack(alignment: .leading, spacing: 1) {
                         if let running = macroTags[ac.callsign] {
-                            Button { onMacro?(nil, ac.callsign); controls.mode = .idle } label: {
-                                Text("STOP  \(running)").font(.ui(size: 12, design: .monospaced)).foregroundStyle(theme.alert)
+                            PickerKey(label: "STOP  \(running)", colour: theme.alert, width: 150) {
+                                onMacro?(nil, ac.callsign); controls.mode = .idle
                             }
-                            .buttonStyle(.plain)
                         }
                         ForEach(macroChoices?(ac) ?? [], id: \.self) { name in
-                            Button { onMacro?(name, ac.callsign); controls.mode = .idle } label: {
-                                Text(name).font(.ui(size: 12, design: .monospaced)).foregroundStyle(theme.text)
-                                    .frame(minWidth: 90, alignment: .leading)
-                            }
-                            .buttonStyle(.plain)
+                            PickerKey(label: name, width: 150) { onMacro?(name, ac.callsign); controls.mode = .idle }
                         }
                     }
-                    .padding(8)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(theme.panel))
-                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(theme.panelBorder, lineWidth: 1))
+                    }
+                    .fixedSize()
                     .offset(x: min(p.x + 70, size.width - 160), y: max(8, min(p.y - 60, size.height - 200)))
                 }
                 if controls.mode == .altitude {
@@ -428,13 +423,15 @@ struct ScopeView: View {
                     approachList(for: ac, at: p, size: size)
                 }
                 if controls.mode == .direct && !controls.pendingRoute.isEmpty {
+                    PickerCard(title: "Route") {
                     HStack(spacing: 6) {
-                        Text(controls.pendingRoute.joined(separator: " › ")).font(.ui(size: 11, design: .monospaced))
-                        Button("Undo") { controls.undoRouteFix() }
-                        Button("Done") { controls.commitRoute(aircraft: ac) }.tint(.orange)
+                        Text(controls.pendingRoute.joined(separator: " › "))
+                            .font(.ui(size: 11, design: .monospaced)).foregroundStyle(theme.route)
+                        PickerKey(label: "UNDO", colour: theme.dimText) { controls.undoRouteFix() }
+                        PickerKey(label: "DONE", colour: theme.heading, current: true) { controls.commitRoute(aircraft: ac) }
                     }
-                    .padding(6)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6))
+                    }
+                    .fixedSize()
                     .offset(x: min(p.x + 70, size.width - 320), y: max(8, min(p.y + 40, size.height - 60)))
                 }
                 if controls.canExpedite {
@@ -449,9 +446,7 @@ struct ScopeView: View {
                                   onRemove: { controls.removeChip(at: $0) },
                                   onSend: onSend,
                                   onCancel: { controls.cancelAll() })
-                        // Right of the track label (about 85 px wide) and clear of the ring, so neither is covered.
-                        .offset(x: columnOpen ? max(8, p.x - 215) : min(p.x + 95, size.width - 200),
-                                y: max(8, min(p.y - 12, size.height - 170)))
+                        .offset(chipOffset(at: p, size: size, columnOpen: columnOpen))
                 }
             }
             if let banner = controls.banner {
@@ -461,6 +456,25 @@ struct ScopeView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    /// Where the command chips go. Normally right of the track label (about 85 px wide) and clear of the ring. With a
+    /// value column or the approach list open on the right, they move left of the aircraft; if there is no room on
+    /// the left, below the approach list. Nothing they cover can then be clicked, so they must never overlap a picker.
+    private func chipOffset(at p: CGPoint, size: CGSize, columnOpen: Bool) -> CGSize {
+        let chipWidth: CGFloat = 200, chipHeight: CGFloat = 170
+        let y = max(8, min(p.y - 12, size.height - chipHeight))
+        let leftX = p.x - 95 - chipWidth
+        if controls.mode == .approach {
+            if leftX >= 8 { return CGSize(width: leftX, height: y) }
+            // Below the list: its top (as placed in approachList) plus header, rows and padding.
+            let rows = CGFloat(openIlsRunways.count)
+            let listTop = max(8, min(p.y - 40, size.height - 60 - 22 * rows))
+            let below = listTop + 22 + rows * 24 + 16 + 8
+            return CGSize(width: max(8, min(p.x + 70, size.width - chipWidth)), height: min(below, size.height - chipHeight))
+        }
+        if columnOpen { return CGSize(width: max(8, p.x - 215), height: y) }
+        return CGSize(width: min(p.x + 95, size.width - chipWidth), height: y)
     }
 
     private func crossLevelItems(for ac: Aircraft) -> [ValueColumnView.Item] {
@@ -522,11 +536,10 @@ struct ScopeView: View {
     @ViewBuilder
     private func approachList(for ac: Aircraft, at p: CGPoint, size: CGSize) -> some View {
         let runways = openIlsRunways.sorted { $0.id < $1.id }
-        VStack(alignment: .leading, spacing: 4) {
-            Text("APPROACH  (\u{2022} starts on its route; NM to the first fix)")
-                .font(.ui(size: 10, design: .monospaced)).foregroundStyle(theme.heading)
+        PickerCard(title: "Approach  · \u{2022} on route · NM to first fix", accent: theme.approach) {
+        VStack(alignment: .leading, spacing: 3) {
             ForEach(runways, id: \.id) { runway in
-                HStack(spacing: 6) {
+                HStack(spacing: 4) {
                     listButton("\(runway.ils == nil ? "VIS" : "ILS") \(runway.id)", colour: theme.text) {
                         controls.add(runway.ils == nil ? .visualApproach(runway: runway.id) : .approach(runway: runway.id), aircraft: ac)
                     }
@@ -540,23 +553,14 @@ struct ScopeView: View {
                 }
             }
         }
-        .padding(8)
-        .background(RoundedRectangle(cornerRadius: 6).fill(theme.panel))
-        .overlay(RoundedRectangle(cornerRadius: 6).stroke(theme.panelBorder, lineWidth: 1))
+        }
         .fixedSize()
         .offset(x: max(8, min(p.x + 70, size.width - 460)), y: max(8, min(p.y - 40, size.height - 60 - 22 * CGFloat(runways.count))))
     }
 
     private func listButton(_ title: String, colour: Color, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(.ui(size: 11, weight: .semibold, design: .monospaced))
-                .foregroundStyle(colour)
-                .padding(.horizontal, 5).padding(.vertical, 2)
-                .overlay(RoundedRectangle(cornerRadius: 3).stroke(theme.approach.opacity(0.7), lineWidth: 1))
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
+        PickerKey(label: title, colour: colour, action: action)
+            .overlay(RoundedRectangle(cornerRadius: 3).stroke(theme.panelBorder, lineWidth: 1).allowsHitTesting(false))
     }
 
     /// Buttons on the scope: one per open runway on its extended centreline, and one per approach on its first leg.

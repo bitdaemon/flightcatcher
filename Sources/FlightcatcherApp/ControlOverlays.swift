@@ -16,19 +16,37 @@ struct RingItem: Identifiable {
     var secondary: Bool = false
 }
 
-/// Round buttons around the aircraft. The set depends on the aircraft (see `ScopeView.ringItems`):
+/// Buttons on a dark band around the aircraft. The set depends on the aircraft (see `ScopeView.ringItems`):
 /// arrivals get HDG ALT SPD DCT APP XNG MAINT HO, departures in the air the same without APP, departures on the ground
-/// only LUP and T/O.
+/// only LUP and T/O. Main items sit on the band as small square-cornered keys; the rest are chips on an outer arc.
+/// The key under the pointer fills with the scheme's heading colour.
 struct RadialRingView: View {
     let center: CGPoint
     let items: [RingItem]
+    /// The aircraft's track tag on screen; a thin line joins the band to it. `.null` when the tag is hidden.
+    var tagFrame: CGRect = .null
     let onPick: (RingAction) -> Void
 
     @ObservedObject private var themeStore = ThemeStore.shared
     private var theme: Theme { themeStore.theme }
 
+    /// From the outer edge of the band to the nearest point of the tag, or nil when the tag sits on the band.
+    private var leader: (from: CGPoint, to: CGPoint)? {
+        guard !tagFrame.isNull else { return nil }
+        let to = CGPoint(x: min(max(center.x, tagFrame.minX), tagFrame.maxX),
+                         y: min(max(center.y, tagFrame.minY), tagFrame.maxY))
+        let dx = to.x - center.x, dy = to.y - center.y
+        let d = hypot(dx, dy)
+        let edge = bandRadius + bandWidth / 2
+        guard d > edge + 4 else { return nil }
+        return (CGPoint(x: center.x + dx / d * edge, y: center.y + dy / d * edge), to)
+    }
+
     private var primary: [RingItem] { items.filter { !$0.secondary } }
     private var secondary: [RingItem] { items.filter(\.secondary) }
+
+    private let bandRadius: CGFloat = 58
+    private let bandWidth: CGFloat = 26
 
     /// Outer arc for the secondary items: below and to the left of the aircraft, away from the track tag on the right.
     private func secondaryPosition(_ i: Int) -> CGPoint {
@@ -36,53 +54,149 @@ struct RadialRingView: View {
         let start = 150.0, end = 255.0 // degrees clockwise from north
         let deg = n == 1 ? (start + end) / 2 : start + (end - start) * Double(i) / Double(n - 1)
         let a = deg * .pi / 180
-        return CGPoint(x: center.x + CGFloat(sin(a)) * 92, y: center.y - CGFloat(cos(a)) * 92)
+        let r = bandRadius + bandWidth / 2 + 22
+        return CGPoint(x: center.x + CGFloat(sin(a)) * r, y: center.y - CGFloat(cos(a)) * r)
     }
 
     var body: some View {
         ZStack {
+            if let leader {
+                Path { p in p.move(to: leader.from); p.addLine(to: leader.to) }
+                    .stroke(theme.heading.opacity(0.7), lineWidth: 1)
+                    .allowsHitTesting(false)
+                Circle().fill(theme.heading).frame(width: 4, height: 4).position(leader.to).allowsHitTesting(false)
+            }
+            // The band: a dark ring with hairline edges, like a bezel round the target.
             Circle()
-                .stroke(theme.selected.opacity(0.5), lineWidth: 1)
-                .frame(width: 104, height: 104)
+                .stroke(theme.panel.opacity(0.94), lineWidth: bandWidth)
+                .frame(width: bandRadius * 2, height: bandRadius * 2)
                 .position(center)
                 .allowsHitTesting(false)
+            ForEach([bandRadius - bandWidth / 2, bandRadius + bandWidth / 2], id: \.self) { r in
+                Circle()
+                    .stroke(theme.panelBorder, lineWidth: 1)
+                    .frame(width: r * 2, height: r * 2)
+                    .position(center)
+                    .allowsHitTesting(false)
+            }
             ForEach(secondary.indices, id: \.self) { i in
-                let item = secondary[i]
-                Button { onPick(item.action) } label: {
-                    Text(item.label)
-                        .font(.ui(size: 9, weight: .semibold, design: .monospaced))
-                        .lineLimit(1)
-                        .fixedSize()
-                        .padding(.horizontal, 6)
-                        .frame(height: 18)
-                        .background(Capsule().fill(theme.panel))
-                        .overlay(Capsule().stroke(item.enabled ? theme.panelBorder.opacity(1) : theme.panelBorder.opacity(0.5), lineWidth: 1))
-                        .contentShape(Capsule())
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(item.enabled ? theme.dimText : theme.dimText.opacity(0.4))
-                .disabled(!item.enabled)
-                .position(secondaryPosition(i))
+                RingKey(item: secondary[i], small: true) { onPick(secondary[i].action) }
+                    .position(secondaryPosition(i))
             }
             ForEach(primary.indices, id: \.self) { i in
                 let angle = Double(i) * (360 / Double(primary.count)) * .pi / 180
-                let item = primary[i]
-                Button { onPick(item.action) } label: {
-                    Text(item.label)
-                        .font(.ui(size: 10, weight: .bold, design: .monospaced))
-                        .minimumScaleFactor(0.7)
-                        .lineLimit(1)
-                        .frame(width: 34, height: 34)
-                        .background(Circle().fill(theme.panel))
-                        .overlay(Circle().stroke(item.enabled ? theme.heading : theme.panelBorder, lineWidth: 1.5))
-                        .contentShape(Circle())
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(item.enabled ? theme.text : theme.dimText)
-                .disabled(!item.enabled)
-                .position(x: center.x + CGFloat(sin(angle)) * 52, y: center.y - CGFloat(cos(angle)) * 52)
+                RingKey(item: primary[i], small: false) { onPick(primary[i].action) }
+                    .position(x: center.x + CGFloat(sin(angle)) * bandRadius,
+                              y: center.y - CGFloat(cos(angle)) * bandRadius)
             }
         }
+    }
+}
+
+/// One key of the radial menu: outlined at rest, filled with the heading colour under the pointer, faint when disabled.
+private struct RingKey: View {
+    let item: RingItem
+    let small: Bool
+    let action: () -> Void
+    @State private var hovering = false
+    @ObservedObject private var themeStore = ThemeStore.shared
+    private var theme: Theme { themeStore.theme }
+
+    var body: some View {
+        let lit = hovering && item.enabled
+        Button(action: action) {
+            Text(item.label)
+                .font(.ui(size: small ? 9 : 10, weight: .bold, design: .monospaced))
+                .tracking(0.4)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .fixedSize(horizontal: small, vertical: false)
+                .padding(.horizontal, small ? 6 : 0)
+                .frame(width: small ? nil : 42, height: small ? 18 : 22)
+                .foregroundStyle(lit ? theme.background
+                                 : item.enabled ? (small ? theme.dimText : theme.text) : theme.dimText.opacity(0.35))
+                .background(RoundedRectangle(cornerRadius: 3)
+                    .fill(lit ? theme.heading : small ? theme.panel.opacity(0.94) : theme.rowHighlight))
+                .overlay(RoundedRectangle(cornerRadius: 3)
+                    .stroke(lit ? theme.heading
+                            : item.enabled ? (small ? theme.panelBorder : theme.heading.opacity(0.45))
+                            : theme.panelBorder.opacity(0.5), lineWidth: 1))
+                .contentShape(RoundedRectangle(cornerRadius: 3))
+        }
+        .buttonStyle(.plain)
+        .disabled(!item.enabled)
+        .onHover { hovering = $0 }
+        .animation(.easeOut(duration: 0.08), value: hovering)
+    }
+}
+
+/// The card that every picker opened from the ring sits in: the panel colour, a hairline border and a header strip
+/// with the title in small capitals, matching the docked panels.
+struct PickerCard<Content: View>: View {
+    let title: String
+    var accent: Color? = nil
+    @ViewBuilder var content: () -> Content
+    @ObservedObject private var themeStore = ThemeStore.shared
+    private var theme: Theme { themeStore.theme }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 6) {
+                RoundedRectangle(cornerRadius: 1).fill(accent ?? theme.heading).frame(width: 3, height: 10)
+                Text(title.uppercased())
+                    .font(.ui(size: 10, weight: .bold, design: .monospaced))
+                    .tracking(0.6)
+                    .foregroundStyle(theme.dimText)
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 8)
+            .frame(height: 22)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .overlay(alignment: .bottom) { Rectangle().fill(theme.panelBorder).frame(height: 1) }
+            content().padding(6)
+        }
+        .background(RoundedRectangle(cornerRadius: 4).fill(theme.panel.opacity(0.96)))
+        .overlay(RoundedRectangle(cornerRadius: 4).stroke(theme.panelBorder, lineWidth: 1))
+        .shadow(color: .black.opacity(themeStore.isLight ? 0.12 : 0.45), radius: 10, y: 4)
+    }
+}
+
+/// A key inside a picker: outlined or plain at rest, filled with the heading colour under the pointer.
+struct PickerKey: View {
+    let label: String
+    var colour: Color? = nil
+    /// Marks the current value (a soft fill) or the flight-plan level (an outline in the selected colour).
+    var current = false
+    var outlined = false
+    var enabled = true
+    var width: CGFloat? = nil
+    var onHover: ((Bool) -> Void)? = nil
+    let action: () -> Void
+    @State private var hovering = false
+    @ObservedObject private var themeStore = ThemeStore.shared
+    private var theme: Theme { themeStore.theme }
+
+    var body: some View {
+        let lit = hovering && enabled
+        Button(action: action) {
+            Text(label)
+                .font(.ui(size: 11, weight: current ? .bold : .regular, design: .monospaced))
+                .lineLimit(1)
+                .padding(.horizontal, 6)
+                .frame(width: width, height: 20, alignment: width == nil ? .center : .leading)
+                .foregroundStyle(lit ? theme.background : !enabled ? theme.dimText.opacity(0.4)
+                                 : outlined ? theme.selected : (colour ?? theme.text))
+                .background(RoundedRectangle(cornerRadius: 3)
+                    .fill(lit ? theme.heading : current ? theme.rowHighlight : Color.clear))
+                .overlay(RoundedRectangle(cornerRadius: 3)
+                    .stroke(lit ? theme.heading : outlined ? theme.selected : current ? theme.heading.opacity(0.5)
+                            : Color.clear, lineWidth: 1))
+                .contentShape(RoundedRectangle(cornerRadius: 3))
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .onHover { inside in hovering = inside; onHover?(inside) }
+        .animation(.easeOut(duration: 0.08), value: hovering)
     }
 }
 
@@ -107,38 +221,30 @@ struct ValueColumnView: View {
     private var theme: Theme { themeStore.theme }
 
     var body: some View {
-        VStack(spacing: 4) {
-            Text(title).font(.ui(size: 11, weight: .bold, design: .monospaced)).foregroundStyle(theme.heading)
+        PickerCard(title: title) {
             ScrollViewReader { proxy in
-                ScrollView {
-                    VStack(spacing: 2) {
+                ScrollView(showsIndicators: false) {
+                    VStack(spacing: 1) {
                         ForEach(items.sorted { $0.id > $1.id }) { item in
-                            Button { onPick(item.id) } label: {
-                                Text((item.isCurrent ? "● " : "") + (item.isPlanned ? "★ " : "") + item.label)
-                                    .font(.ui(size: 11, design: .monospaced))
-                                    .frame(width: 86, height: 20)
-                                    .background(RoundedRectangle(cornerRadius: 3).fill(item.isCurrent ? theme.rowHighlight : theme.panel))
-                                    .overlay(RoundedRectangle(cornerRadius: 3)
-                                        .stroke(theme.selected, lineWidth: item.isPlanned ? 1.5 : 0))
-                                    .contentShape(Rectangle())
+                            PickerKey(label: (item.isPlanned ? "★ " : "") + item.label,
+                                      current: item.isCurrent, outlined: item.isPlanned, enabled: item.enabled,
+                                      width: 88, onHover: { inside in onHover?(inside ? item.id : nil) }) {
+                                onPick(item.id)
                             }
-                            .buttonStyle(.plain)
-                            .foregroundStyle(item.isPlanned ? theme.selected : (item.enabled ? theme.text : theme.dimText.opacity(0.5)))
-                            .disabled(!item.enabled)
-                            .onHover { inside in onHover?(inside ? item.id : nil) }
                             .id(item.id)
                         }
                     }
                 }
-                .frame(width: 92, height: 220)
+                .frame(width: 88, height: 220)
+                .mask(LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .black, location: 0.08),
+                                             .init(color: .black, location: 0.92), .init(color: .clear, location: 1)],
+                                     startPoint: .top, endPoint: .bottom))
                 .onAppear {
                     if let current = items.first(where: \.isCurrent) { proxy.scrollTo(current.id, anchor: .center) }
                 }
             }
         }
-        .padding(6)
-        .background(RoundedRectangle(cornerRadius: 4).fill(theme.panel))
-        .overlay(RoundedRectangle(cornerRadius: 4).stroke(theme.panelBorder, lineWidth: 1))
+        .fixedSize()
     }
 }
 
@@ -155,8 +261,8 @@ struct ChipStripView: View {
     private let mono = Font.ui(size: 11, design: .monospaced)
 
     var body: some View {
+        PickerCard(title: callsign, accent: theme.selected) {
         VStack(alignment: .leading, spacing: 3) {
-            Text(callsign).font(mono).foregroundStyle(theme.selected)
             ForEach(commands.indices, id: \.self) { i in
                 Button { onRemove(i) } label: {
                     HStack(spacing: 6) {
@@ -174,15 +280,14 @@ struct ChipStripView: View {
                 .foregroundStyle(theme.text)
                 .help("Click to remove")
             }
-            HStack(spacing: 6) {
-                Button("Send ↵", action: onSend).keyboardShortcut(.return, modifiers: .command)
-                Button("Cancel", action: onCancel)
+            HStack(spacing: 4) {
+                PickerKey(label: "SEND ↵", colour: theme.heading, current: true, action: onSend)
+                    .keyboardShortcut(.return, modifiers: .command)
+                PickerKey(label: "CANCEL", colour: theme.dimText, action: onCancel)
             }
-            .font(mono)
+            .padding(.top, 2)
         }
-        .padding(6)
-        .background(RoundedRectangle(cornerRadius: 4).fill(theme.panel))
-        .overlay(RoundedRectangle(cornerRadius: 4).stroke(theme.selected.opacity(0.6), lineWidth: 1))
+        }
         .fixedSize()
     }
 }

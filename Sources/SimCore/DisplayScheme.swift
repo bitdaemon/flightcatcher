@@ -41,13 +41,19 @@ public struct DisplayScheme: Identifiable, Equatable {
 /// Colour schemes. Line features on the scope (STARs, SIDs, approaches, the selected aircraft's route, runways) are
 /// kept at least a set colour distance apart in every scheme; `DisplaySchemeTests` enforces it.
 public enum DisplaySchemes {
-    public static let defaultID = "slate"
+    public static let defaultID = "tactical"
 
     public static func scheme(id: String) -> DisplayScheme {
         all.first { $0.id == id } ?? all[0]
     }
 
     public static let all: [DisplayScheme] = [
+        DisplayScheme(id: "tactical", name: "Tactical", isLight: false, colors: SchemeColors(
+                background: 0x080B0A, panel: 0x0E1513, panelBorder: 0x1C2623, rowHighlight: 0x13201B, text: 0xC9D4CF,
+                dimText: 0x7F8F88, heading: 0x4FD1A5, selected: 0xFFE680, compass: 0x3A4A43, compassLabel: 0x7F8F88,
+                rings: 0x16211D, runway: 0xC9D4CF, runwayCentreline: 0x5F6F68, fix: 0x5D6D66, star: 0x6FB3FF,
+                sid: 0xD99BFF, approach: 0x4FD1A5, route: 0xF2B84B, aircraft: 0xFFFFFF, ok: 0x4FD1A5,
+                warning: 0xF2B84B, alert: 0xFF6B6B, controller: 0xC9D4CF, pilot: 0x4FD1A5, system: 0x7F8F88)),
         DisplayScheme(id: "slate", name: "Slate", isLight: false, colors: SchemeColors(
                 background: 0x1B2430, panel: 0x252F3D, panelBorder: 0x3F4E63, rowHighlight: 0x34445A, text: 0xE6EAF0,
                 dimText: 0x8D9BAE, heading: 0x6CB6FF, selected: 0xFFE14D, compass: 0x8D9BAE, compassLabel: 0xB4C0D0,

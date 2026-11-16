@@ -38,6 +38,7 @@ private struct DisplaySettingsTab: View {
     @AppStorage("showCompass") private var showCompass = true
     @AppStorage("autoDeclutter") private var autoDeclutter = true
     @AppStorage("tagCommandsAll") private var tagCommandsAll = false
+    @AppStorage("dockedLayout") private var dockedLayout = true
 
     var body: some View {
         Form {
@@ -49,6 +50,11 @@ private struct DisplaySettingsTab: View {
                     Button("Default") { uiScale.reset() }
                 }
                 Text("Also Cmd+- and Cmd+= in the View menu, Cmd+0 for the default.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section("Layout") {
+                Toggle("Docked panels (strips and radio left, airport info right)", isOn: $dockedLayout)
+                Text("Off: radio, aircraft, airport info and runways float over the scope as before.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("Colour scheme") {

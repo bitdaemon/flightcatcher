@@ -16,6 +16,12 @@ struct ContentView: View {
     @ObservedObject var layout: PanelLayout
     @ObservedObject var tags: TagModel
     @AppStorage("autoDeclutter") private var autoDeclutter = true
+    /// Radio, aircraft strips, airport info and runways fixed in side columns instead of floating over the scope.
+    @AppStorage("dockedLayout") private var dockedLayout = true
+    /// Width of the left column and height of the radio section in the docked layout, saved between runs.
+    @AppStorage("dockLeftWidth") private var dockLeftWidth = 340.0
+    @AppStorage("dockRadioHeight") private var dockRadioHeight = 280.0
+    @State private var dockDragStart: Double?
     @AppStorage("tagCommandsAll") private var tagCommandsAll = false
     @AppStorage("showCompass") private var showCompass = true
     @AppStorage("showFixes") private var showFixes = true
@@ -28,14 +34,20 @@ struct ContentView: View {
     var body: some View {
         VStack(spacing: 0) {
             controlBar
-            GeometryReader { geo in
-                mainStack(window: geo.size)
+            if dockedLayout {
+                dockedBody
+            } else {
+                GeometryReader { geo in
+                    mainStack(window: geo.size)
+                }
+                .clipped()
             }
-            .clipped()
         }
         .id(uiScale.factor)
         .background(theme.background)
-        .overlay(alignment: .bottom) { CommandBarView(runner: runner, controls: mouse).id(uiScale.factor) }
+        .overlay(alignment: .bottom) {
+            if !dockedLayout { CommandBarView(runner: runner, controls: mouse).id(uiScale.factor) }
+        }
         .onChange(of: uiScale.factor) { _, _ in mouse.tell("Text size \(uiScale.percent)%") }
         .overlay(alignment: .top) {
             // Same style and place as the mode prompts, a line lower while one of those is showing.
@@ -127,9 +139,100 @@ struct ContentView: View {
         }
     }
 
+    // MARK: Docked layout
+
+    /// Strips and radio on the left, the scope in the middle, airport info and runways on the right. The panel
+    /// buttons in the control bar show and hide the sections; macros, help and the debug tools still float.
+    private var dockedBody: some View {
+        HStack(spacing: 0) {
+            if layout.state("aircraft").visible || layout.state("radio").visible {
+                leftColumn
+                    .frame(width: dockLeftWidth)
+                    .overlay(alignment: .trailing) { Rectangle().fill(theme.panelBorder).frame(width: 1) }
+                    .overlay(alignment: .trailing) {
+                        DockResizeHandle(axis: .horizontal) { d in
+                            guard let d else { dockDragStart = nil; return }
+                            if dockDragStart == nil { dockDragStart = dockLeftWidth }
+                            dockLeftWidth = min(900, max(240, dockDragStart! + Double(d)))
+                        }
+                        .offset(x: 2)
+                    }
+                    .zIndex(1)
+            }
+            GeometryReader { geo in
+                mainStack(window: geo.size)
+            }
+            .clipped()
+            .overlay(alignment: .bottom) {
+                if !layout.state("radio").visible { CommandBarView(runner: runner, controls: mouse) }
+            }
+            if layout.state("info").visible || layout.state("runways").visible {
+                rightColumn
+                    .frame(width: 300 * UIScale.factor)
+                    .overlay(alignment: .leading) { Rectangle().fill(theme.panelBorder).frame(width: 1) }
+            }
+        }
+    }
+
+    private var leftColumn: some View {
+        VStack(spacing: 0) {
+            if layout.state("aircraft").visible {
+                DockedSection(title: "Strips", trailing: "\(runner.aircraft.count)",
+                              onClose: { layout.setVisible("aircraft", false) }) {
+                    AircraftListView(runner: runner)
+                }
+            }
+            if layout.state("radio").visible {
+                if layout.state("aircraft").visible {
+                    DockResizeHandle(axis: .vertical) { d in
+                        guard let d else { dockDragStart = nil; return }
+                        if dockDragStart == nil { dockDragStart = dockRadioHeight }
+                        dockRadioHeight = min(1200, max(100, dockDragStart! - Double(d)))
+                    }
+                }
+                DockedSection(title: "Radio", onClose: { layout.setVisible("radio", false) }) {
+                    RadioLogView(runner: runner)
+                }
+                .frame(height: layout.state("aircraft").visible ? dockRadioHeight : nil)
+                CommandBarView(runner: runner, controls: mouse)
+            }
+        }
+        .background(theme.panel)
+    }
+
+    private var rightColumn: some View {
+        VStack(spacing: 0) {
+            if layout.state("info").visible {
+                DockedSection(title: "Airport info", onClose: { layout.setVisible("info", false) }, fills: false) {
+                    VStack {
+                        InfoPanelView(airport: runner.airport, conflicts: runner.conflicts, lossCount: runner.lossCount,
+                                      wind: runner.wind, runways: runner.runwayStatuses,
+                                      windSource: runner.windSource, nextWeatherUpdate: runner.nextWeatherUpdate,
+                                      trafficRates: runner.trafficRates, score: runner.score)
+                    }
+                }
+            }
+            if layout.state("runways").visible {
+                DockedSection(title: "Runways", onClose: { layout.setVisible("runways", false) }) {
+                    RunwayMapView(runner: runner)
+                }
+                .frame(height: 240 * UIScale.factor)
+            }
+            Spacer(minLength: 0)
+        }
+        .background(theme.panel)
+    }
+
     /// The movable panels. Default positions depend on the window size until the user moves a panel.
     @ViewBuilder
     private func panels(window: CGSize) -> some View {
+        if !dockedLayout { dockablePanels(window: window) }
+        otherPanels(window: window)
+    }
+
+    /// Panels that sit in the side columns when the docked layout is on.
+    @ViewBuilder
+    private func dockablePanels(window: CGSize) -> some View {
         FloatingPanel(id: "radio", title: "Radio", window: window,
                       defaultOrigin: CGPoint(x: 12, y: max(60, window.height - 84 - 180)),
                       width: min(620, max(300, window.width - 24)), defaultHeight: 180,
@@ -156,6 +259,11 @@ struct ContentView: View {
                       minSize: CGSize(width: 220, height: 140), layout: layout) {
             RunwayMapView(runner: runner)
         }
+    }
+
+    /// Panels that always float over the scope.
+    @ViewBuilder
+    private func otherPanels(window: CGSize) -> some View {
         if runner.debugLogging {
             FloatingPanel(id: "debuglog", title: "Debug log", window: window,
                           defaultOrigin: CGPoint(x: 12, y: max(60, window.height - 84 - 380)),
