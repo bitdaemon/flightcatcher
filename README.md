@@ -6,6 +6,8 @@ A 2D radar approach and departure control game for macOS. You vector arrivals on
 
 Native Swift, SwiftUI Canvas scope, deterministic simulation engine. No accounts, no telemetry; the only network call is the optional METAR fetch.
 
+![The scope at Boston (KBOS) with arrivals on STARs and the radio panel](docs/screenshots/scope.png)
+
 > **Not for real-world navigation or training.** This is a game. Procedures and data are approximations and may be wrong or out of date.
 
 ## Features
@@ -84,6 +86,15 @@ Native Swift, SwiftUI Canvas scope, deterministic simulation engine. No accounts
 - Traffic, Weather and Events.
 - Test spawner: a panel (Settings > Debug) that places an aircraft at a chosen bearing and distance, heading, altitude and speed, or on a chosen final approach, for troubleshooting.
 - Debug: an optional debug log (commands, approach progress, why an aircraft has not captured its approach), written to `~/Library/Logs/flightcATCher/` and shown in a live panel.
+
+## Screenshots
+
+| | |
+|---|---|
+| ![Radial menu on a selected arrival](docs/screenshots/radial-menu.png) | ![APP list: approaches to join per runway](docs/screenshots/approach-list.png) |
+| Right-click an aircraft for the radial menu | APP lists the approaches to join per open runway |
+| ![Departures lined up and on their SIDs](docs/screenshots/departures.png) | ![Debrief after a session](docs/screenshots/debrief.png) |
+| Departures at the holding point and on their SIDs | The debrief: score breakdown, charts and worst moments |
 
 ## Requirements
 - macOS 14 or later
