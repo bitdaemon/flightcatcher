@@ -26,17 +26,20 @@ Native Swift, SwiftUI Canvas scope, deterministic simulation engine. No accounts
 - **Command bar** with short codes that chain in one line, for example `ein d70 s180 h270l`:
   - `d` descend, `c` climb, `h` heading (`l`/`r` for turn direction), `s` speed
   - `i` ILS approach (a runway without an ILS gets a visual approach)
-  - `j` join an approach by its procedure ID, for example `j I27.AYBEE` (ILS) or `j R27.AYBEE` (RNAV); also in the Join approach menu
-  - `p` proceed direct, `x` cross a fix at an altitude
+  - `j` join an approach by its procedure ID, for example `j I27.AYBEE` (ILS) or `j R27.AYBEE` (RNAV)
+  - `j01l` the best approach to runway 01L for that aircraft (one starting on its route, else the nearest), `j01l.2` the second choice; the preview lists the choices as you type
+  - `p` proceed direct (`p exit` to a departure's exit fix), `x` cross a fix at an altitude
   - `m` maintain present heading, altitude and speed (cancels route, crossing, expedite and an approach still being intercepted)
+  - `own` (or `rn`) resume own navigation: back onto the assigned STAR, SID or direct-to-fix route at the next fix after the nearest part of it
   - `lu` line up, `to` cleared for take-off, `ho` handoff
   - `!` expedites a descent, climb, turn or speed change
-- **Radial menu** (right-click an aircraft): HDG, ALT, SPD, DCT, APP, XNG, HO and COL, with pick-and-collect command chips. Departures on the ground get LUP and T/O.
+- **Radial menu** (right-click an aircraft): HDG, ALT, SPD, DCT, APP, HO on the main ring; XNG, MAINT, OWN, MAC and COL on the outer arc; pick-and-collect command chips. Departures on the ground get LUP and T/O.
+  - APP opens a list beside the aircraft, one line per open runway: the ILS (or visual) clearance, then the nearest approaches to join with their distance; one starting on the aircraft's route is marked. No zooming needed at airports with many parallel runways.
   - Values you pick collect as chips; Enter sends, Esc backs out.
   - The ALT picker marks a departure's flight-plan level with a star and outline.
   - COL sets an aircraft's marker colour.
 - Pilots read back instructions with a short delay, and refuse what they can't do ("Unable: ..."), including the minimum vectoring altitude and closed runways. A pilot who cannot make an intercept says so ("we're heading 090, we'll need a vector"), and one established but too high asks for lower.
-- Approach logic: localiser and glideslope capture, a stable-approach gate with go-around, and a tower handoff once established. Visual approaches are built from the runway itself.
+- Approach logic: localiser and glideslope capture, a stable-approach gate with go-around (applied on the final approach only, not to an aircraft cleared from off to the side), and a tower handoff once established. Visual approaches are built from the runway itself.
 - Take-off clearances carry the departure instruction: "BOFUM one Alfa departure, climb and maintain three thousand feet, runway zero four right, cleared for take-off", or for a runway without a SID, "fly runway heading, climb to three thousand feet, ...".
 - Every departure has an exit fix: the last fix of its SID, or, without a SID, a fix near the edge of the area picked for it. It is shown in the tag (`EXIT → BCE`) and the strip, drawn as a dotted line when the departure is selected, and `p exit` sends the aircraft direct to it. Handing off a departure heading for its exit earns +20; more than 90° away costs −30.
 - A departure without a SID shows RWY HDG in its tag until you give it a heading, direct or route; the line turns to the warning colour once it is airborne and still waiting for a vector.
@@ -45,15 +48,18 @@ Native Swift, SwiftUI Canvas scope, deterministic simulation engine. No accounts
 ### The scope
 - Pan and zoom, range rings, optional compass ring, track tags that can be dragged, and optional tag declutter.
 - Selected aircraft: its remaining route is drawn, and an arc with the level shows where it will reach its target altitude at its current speed. Hovering a level in the ALT picker previews where that level would be reached.
-- Velocity vectors, conflict and loss-of-separation warnings, and colour markers per aircraft.
+- Velocity vectors, conflict and loss-of-separation warnings, and colour markers per aircraft. The conflict prediction follows each aircraft's route fixes, turning at them, instead of a straight line.
+- Separation: 3 NM or 1,000 ft. Aircraft established on approaches to parallel runways use the parallel rules instead (none between independent runways 4,300 ft or more apart, 1.5 NM diagonal between closer ones). Two arrivals both handed to the tower are the tower's to separate and are not counted against you.
+- Departures waiting at the holding point or lined up show only their symbol; their tag appears once they are cleared for take-off.
+- STAR, SID and APP buttons in the control bar show or hide all STARs, SIDs and approaches.
 - Aircraft handed to the tower are greyed out on the scope and in the strip list.
 
 ### Panels (movable, pinnable, resizable)
-- **Radio:** controller calls, pilot readbacks and sim notices, colour-coded by speaker and importance (red emergencies, amber go-arounds and refusals, green good news). With an aircraft selected, all its calls are highlighted.
+- **Radio:** controller calls, pilot readbacks and sim notices, colour-coded by speaker and importance (red emergencies, amber go-arounds and refusals, green good news). Each of your instructions also shows its command-bar form (`> aal123 d70 s180`), a chain once on its first call. With an aircraft selected, all its calls are highlighted.
 - **Aircraft:** arrival and departure strips with the last instructions; departures show their plan level and handoff level. Handed-over aircraft shrink to a greyed line.
-- **Airport info:** elevation, transition altitude, wind and its source (real METAR or random) with a countdown to the next update, open runways with head and crosswind, closed runways, and the separation monitor.
+- **Airport info,** in sections: the airport (elevation, transition altitude, open runways with head and crosswind, closed runways), the wind and its source with the next update, the current traffic rates, the score, and the separation monitor.
 - **Runways:** a zoomed-in runway chart. Green means free, yellow means an arrival is cleared for an approach to it, red means a take-off or landing is using it. Aircraft near the runways are shown.
-- **Commands:** a cheat sheet for the command bar and mouse actions.
+- **Commands and scoring:** a cheat sheet for the command bar, mouse actions and the scoring rules.
 
 ### Weather
 - Wind from live METARs (NOAA Aviation Weather Center, no key needed), refreshed every 15 minutes, with a short notice at the top of the scope after each fetch. If a fetch fails the wind drifts randomly.
@@ -69,7 +75,7 @@ Native Swift, SwiftUI Canvas scope, deterministic simulation engine. No accounts
 - Penalties: −300 a loss of separation (and −50 for every 10 s it lasts), −150 a departure leaving the area without a handoff, −100 a go-around you caused, −50 an arrival left at the end of its route, −50 an emergency ignored for 2 minutes, smaller ones for conflict alerts, refusals, waiting departures and unvectored runway-heading departures. Pilot and windshear go-arounds are free.
 - Score = points × a difficulty multiplier from the traffic rate and variation, random events, live weather and gusts.
 - The score, multiplier, grade and last change are shown in Airport info; big changes also go on the radio.
-- **END** (top right of the control bar) pauses and opens the debrief: grade (A Supervisor to E Removed from position), breakdown, score and traffic chart, worst moments, arrival efficiency and the airport's best scores. Resume, start a new session, or replay the same traffic seed to beat your score.
+- **END** (top right of the control bar) pauses and opens the debrief: grade (A Supervisor to E Removed from position), breakdown, score and traffic chart, worst moments, arrival efficiency and the airport's best scores. Resume, start a new session, replay the same traffic seed to beat your score, or quit.
 
 ### Settings (Cmd+,)
 - Display: text size (Cmd+= larger, Cmd+- smaller, Cmd+0 reset), colour scheme, compass, tag options.
