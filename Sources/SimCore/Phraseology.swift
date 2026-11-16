@@ -121,6 +121,8 @@ public enum Phraseology {
                 + spokenRunway(runway)
         case .maintain:
             return "maintain present heading, altitude and speed"
+        case .resumeNavigation:
+            return "resume own navigation"
         case .lineUp:
             return "line up and wait runway " + spokenRunway(aircraft.departure?.runway ?? "")
         case .takeoff:
@@ -176,10 +178,11 @@ public enum Phraseology {
     }
 
     public static func departureCheckIn(for aircraft: Aircraft, passingFt: Int, climbingToFt: Int, sid: String,
-                                        transitionAltitudeFt: Int) -> String {
+                                        transitionAltitudeFt: Int, exitFix: String? = nil) -> String {
         "Departure, \(spokenCallsign(aircraft)), passing \(spokenLevel(feet: passingFt, transitionAltitudeFt: transitionAltitudeFt)), "
         + "climbing \(spokenLevel(feet: climbingToFt, transitionAltitudeFt: transitionAltitudeFt)), "
-        + (sid.isEmpty ? "runway heading" : "\(spokenProcedure(sid)) departure")
+        + (sid.isEmpty ? "runway heading" + (exitFix.map { ", requesting direct \($0)" } ?? "")
+                       : "\(spokenProcedure(sid)) departure")
     }
 
     /// Pilot call when a route runs out with no approach clearance, for example

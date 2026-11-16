@@ -78,11 +78,14 @@ public enum CommandBar {
 
     /// A lone token such as "d70" or "h270l": a code letter, at least one digit, and for h an optional l or r.
     /// Words that are commands on their own: maintain present state, line up and wait, cleared for take-off, hand off.
-    static let wordCommands: [String: Command] = ["lu": .lineUp, "to": .takeoff, "ho": .handoff, "m": .maintain]
+    static let wordCommands: [String: Command] = ["lu": .lineUp, "to": .takeoff, "ho": .handoff, "m": .maintain,
+                                                  "own": .resumeNavigation, "rn": .resumeNavigation]
 
     static func isCode(_ rawToken: String, knownFixes: Set<String> = [], approaches: [String: ApproachJoin] = [:]) -> Bool {
         if ["mac", "mac-"].contains(rawToken.lowercased()) { return true }
         if rawToken.count > 1, rawToken.lowercased().hasPrefix("j") {
+            // "j01l", "j01l.2": an approach to a runway, chosen for the aircraft once it is known.
+            if rawToken.dropFirst().first?.isNumber == true { return true }
             return approaches[String(rawToken.dropFirst()).uppercased()] != nil
         }
         if wordCommands[rawToken.lowercased()] != nil { return true }
@@ -158,6 +161,11 @@ public enum CommandBar {
             }
             // "p kerav" is the same as "pkerav" when the next word is a known fix.
             // Known fixes that follow are further legs of the same route: "p kerav pizsa lamba".
+            // "p exit": direct to the departure's exit fix.
+            if raw[index].lowercased() == "p", index + 1 < raw.count, raw[index + 1].uppercased() == Command.exitFixToken {
+                tokens.append("p" + Command.exitFixToken.lowercased()); index += 2
+                continue
+            }
             var start = -1
             if raw[index].lowercased() == "p", index + 1 < raw.count, knownFixes.contains(raw[index + 1].uppercased()) {
                 start = index + 1
@@ -201,8 +209,40 @@ public enum CommandBar {
         return .success(commands)
     }
 
+    /// One approach to a runway for an aircraft, as offered by `j01l`: whether it starts at a fix on the aircraft's
+    /// route, and how far its first fix is.
+    public struct RunwayChoice: Equatable {
+        public let join: ApproachJoin
+        public let onRoute: Bool
+        public let distanceNM: Double
+    }
+
+    /// The approaches to `runway` an aircraft can join, best first: those starting on its route, then nearest first fix.
+    public static func runwayChoices(for ac: Aircraft, runway: String, approaches: [String: ApproachJoin],
+                                     fixPositions: [String: (east: Double, north: Double)]) -> [RunwayChoice] {
+        let ahead = ac.routeIndex < ac.route.count ? Set(ac.route[ac.routeIndex...].map(\.id)) : []
+        var seen = Set<String>()
+        let choices: [RunwayChoice] = approaches.values.compactMap { join in
+            guard join.runway == runway, seen.insert(join.procedure).inserted, let p = fixPositions[join.via] else { return nil }
+            return RunwayChoice(join: join, onRoute: ahead.contains(join.via),
+                                distanceNM: hypot(p.east - ac.eastNM, p.north - ac.northNM))
+        }
+        return choices.sorted {
+            ($0.onRoute ? 0 : 1, $0.distanceNM, $0.join.procedure) < ($1.onRoute ? 0 : 1, $1.distanceNM, $1.join.procedure)
+        }
+    }
+
+    /// "R01LY.WELET 6" style list for the preview: ".1 •R01LY.WELET 6, .2 R01LY 9".
+    static func choicesText(_ choices: [RunwayChoice], limit: Int = 4) -> String {
+        choices.prefix(limit).enumerated().map { i, c in
+            ".\(i + 1) \(c.onRoute ? "\u{2022}" : "")\(c.join.procedure) \(Int(c.distanceNM.rounded()))"
+        }.joined(separator: ", ")
+    }
+
     public static func evaluate(input: String, aircraft: [Aircraft], selected: String?,
-                                knownFixes: Set<String> = [], approaches: [String: ApproachJoin] = [:]) -> CommandBarResult {
+                                knownFixes: Set<String> = [], approaches: [String: ApproachJoin] = [:],
+                                fixPositions: [String: (east: Double, north: Double)] = [:],
+                                openRunways: Set<String>? = nil) -> CommandBarResult {
         let tokens = tokenize(input, knownFixes: knownFixes)
         if tokens.isEmpty { return CommandBarResult(status: .empty, message: "") }
 
@@ -237,6 +277,31 @@ public enum CommandBar {
                                     selects: target.callsign)
         }
 
+        // "j01l" is the best approach to runway 01L for this aircraft, "j01l.2" the second, and so on.
+        var runwayHint = ""
+        let allApproaches = approaches
+        var joinTable = approaches
+        for runway in Set(allApproaches.values.map(\.runway)) where openRunways?.contains(runway) ?? true {
+            let choices = runwayChoices(for: target, runway: runway, approaches: allApproaches, fixPositions: fixPositions)
+            guard let best = choices.first else { continue }
+            joinTable[runway] = best.join
+            for (i, choice) in choices.prefix(9).enumerated() { joinTable["\(runway).\(i + 1)"] = choice.join }
+        }
+        if let token = codeTokens.last(where: { $0.lowercased().hasPrefix("j") && $0.dropFirst().first?.isNumber == true }) {
+            let alias = token.dropFirst()
+            let runwayPart = alias.split(separator: ".").first.map(String.init) ?? String(alias)
+            if let runway = parseRunway(Substring(runwayPart)) {
+                let choices = runwayChoices(for: target, runway: runway, approaches: allApproaches, fixPositions: fixPositions)
+                if openRunways.map({ !$0.contains(runway) }) ?? false {
+                    runwayHint = "  [runway \(runway) is not in use]"
+                } else if choices.isEmpty {
+                    runwayHint = "  [no approaches to join for \(runway); use i\(runway.lowercased())]"
+                } else {
+                    runwayHint = "  [\(runway): \(choicesText(choices))]"
+                }
+            }
+        }
+
         if codeTokens[0].lowercased() == "mac-" {
             return CommandBarResult(status: .ready, message: "\(target.callsign): cancel macro. Enter to send",
                                     macro: .cancel(callsign: target.callsign))
@@ -255,23 +320,23 @@ public enum CommandBar {
 
         var commands: [Command] = []
         for token in codeTokens {
-            switch parseCode(token, knownFixes: knownFixes, approaches: approaches) {
+            switch parseCode(token, knownFixes: knownFixes, approaches: joinTable) {
             case .command(let command):
                 if let reason = command.refusal(for: target) {
                     return CommandBarResult(status: .error, message: "\(target.callsign): unable, \(reason)")
                 }
                 commands.append(command)
             case .incomplete(let message):
-                return CommandBarResult(status: .incomplete, message: "\(target.callsign): \(message)")
+                return CommandBarResult(status: .incomplete, message: "\(target.callsign): \(message)" + runwayHint)
             case .error(let message):
-                return CommandBarResult(status: .error, message: message)
+                return CommandBarResult(status: .error, message: message + runwayHint)
             }
         }
 
         let all = commands.map { IssuedCommand(callsign: target.callsign, command: $0) }
         let summary = commands.map(\.summary).joined(separator: ", then ")
         return CommandBarResult(status: .ready,
-                                message: "\(target.callsign): \(summary). Enter to send",
+                                message: "\(target.callsign): \(summary). Enter to send" + runwayHint,
                                 issued: all[0],
                                 issuedAll: all)
     }
@@ -338,6 +403,7 @@ public enum CommandBar {
         if letter == "p" {
             let fixes = token.dropFirst().uppercased().split(separator: ",").map(String.init)
             if fixes.isEmpty { return .incomplete("type a fix after p, for example p kerav pizsa") }
+            if fixes == [Command.exitFixToken] { return .command(.direct(fix: Command.exitFixToken)) }
             if let bad = fixes.first(where: { !knownFixes.contains($0) }) { return .error("Unknown fix '\(bad)'") }
             return .command(fixes.count == 1 ? .direct(fix: fixes[0]) : .route(fixes: fixes))
         }

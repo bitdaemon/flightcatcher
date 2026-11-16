@@ -16,9 +16,12 @@ struct HelpView: View {
         ("i28l / i28r", "cleared ILS approach runway 28L / 28R (a runway without an ILS gets a visual approach)"),
         ("p kerav", "proceed direct to fix KERAV"),
         ("p kerav pizsa", "direct to each fix in order (any number of fixes)"),
+        ("p exit", "departure: direct to its exit fix (shown in its tag, its strip, and as a dotted line when selected)"),
+        ("j01l / j01l.2", "best approach to runway 01L for this aircraft (one starting on its route, else the nearest), or the 2nd, 3rd...; the preview lists the choices as you type"),
         ("j i27.aybee", "join approach I27.AYBEE: direct to its first fix, fly the approach, cleared ILS (the same as the Join approach menu)"),
         ("x kerav 50", "cross KERAV at 5000 ft (fix must be on the route)"),
         ("m", "maintain present heading, altitude and speed: cancels route, crossing, expedite and an approach still being intercepted"),
+        ("own (or rn)", "resume own navigation: back onto the assigned STAR, SID or direct-to-fix route at the next fix after the nearest part of it; a departure then goes on to its exit fix (ring: OWN)"),
         ("mac appr", "run the airport's macro APPR on the aircraft (edit macros in the Macros panel)"),
         ("mac-", "stop the aircraft's macro; any instruction you give it also stops it"),
         ("lu", "departure: line up and wait"),
@@ -33,6 +36,8 @@ struct HelpView: View {
         ("arrival flown efficiently: up to 1.2 times its clean time, less up to 2 times", "up to +30"),
         ("departure handed off", "+80"),
         ("departure handed off cleared to its plan level", "+20"),
+        ("departure handed off heading for its exit fix (within 30\u{00B0}, or routed through it)", "+20"),
+        ("departure handed off more than 90\u{00B0} away from its exit", "\u{2212}30"),
         ("emergency aircraft landed (extra)", "+30"),
         ("loss of separation", "\u{2212}300"),
         ("every 10 s a loss of separation lasts", "\u{2212}50"),
@@ -63,9 +68,11 @@ struct HelpView: View {
                 .font(mono).foregroundStyle(theme.dimText)
             Text("Tab completes a callsign, Enter sends, Esc clears.")
                 .font(mono).foregroundStyle(theme.dimText)
-            Text("Right-click an aircraft: ring with HDG ALT SPD DCT APP XNG MAINT MAC HO (departures: no APP; on the ground: LUP T/O MAC).")
+            Text("Right-click an aircraft: ring with HDG ALT SPD DCT APP XNG MAINT OWN MAC HO (departures: no APP; on the ground: LUP T/O MAC).")
                 .font(mono).foregroundStyle(theme.dimText).padding(.top, 4)
             Text("Pick values; they collect as chips. Enter sends, Esc backs out.")
+                .font(mono).foregroundStyle(theme.dimText)
+            Text("APP: a list beside the aircraft, one line per open runway: ILS (or VIS) then the nearest approaches to join, with NM to their first fix; \u{2022} = starts on its route.")
                 .font(mono).foregroundStyle(theme.dimText)
             Text("HDG: point and click (Option = turn the other way).")
                 .font(mono).foregroundStyle(theme.dimText)

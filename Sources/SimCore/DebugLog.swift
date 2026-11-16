@@ -23,4 +23,6 @@ struct ApproachTrace {
     var blocker: String
     var clearedAtTick: Int
     var blockerSinceTick: Int
+    /// Last tick the aircraft was still flying route fixes towards the final. Capture can only be expected after it.
+    var routeTick: Int? = nil
 }

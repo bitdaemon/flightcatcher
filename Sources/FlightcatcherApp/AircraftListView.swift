@@ -118,6 +118,7 @@ struct AircraftListView: View {
     private func departurePlan(_ ac: Aircraft) -> String? {
         guard let d = ac.departure else { return nil }
         return "plan \(levelLabel(d.expectedLevelFt))  handoff \(levelLabel(d.handoffAltitudeFt))"
+            + (d.exitFix.map { "  exit \($0)" } ?? "")
     }
 
     private func clock(_ tick: Int) -> String { String(format: "%02d:%02d", tick / 60, tick % 60) }

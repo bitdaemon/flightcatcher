@@ -149,3 +149,33 @@ final class ScoringSimulationTests: XCTestCase {
         XCTAssertEqual(card.multiplier, 1.0)
     }
 }
+
+final class TowerSeparationTests: XCTestCase {
+    private func pair(towerFirst: Bool, towerSecond: Bool) -> Simulation {
+        let s = Simulation(seed: 1)
+        var a = Aircraft(callsign: "JBU2780", eastNM: 0, northNM: 0, headingDeg: 90, altitudeFt: 3000, speedKt: 150)
+        var b = Aircraft(callsign: "N228RQ", eastNM: 1, northNM: 0, headingDeg: 90, altitudeFt: 3000, speedKt: 150)
+        a.handedToTower = towerFirst
+        b.handedToTower = towerSecond
+        s.spawn(a)
+        s.spawn(b)
+        return s
+    }
+
+    func testBothWithTheTowerIsNotYourLoss() {
+        let s = pair(towerFirst: true, towerSecond: true)
+        s.run(seconds: 25)
+        XCTAssertEqual(s.lossOfSeparationCount, 0)
+        XCTAssertEqual(s.score.losses, 0)
+        XCTAssertEqual(s.score.raw, 0)
+        XCTAssertTrue(s.radioLog.contains { $0.text.contains("both with the tower (not counted)") })
+        XCTAssertEqual(s.conflicts.first?.kind, .loss, "still shown on the scope")
+    }
+
+    func testOneStillYoursCounts() {
+        let s = pair(towerFirst: true, towerSecond: false)
+        s.run(seconds: 11)
+        XCTAssertEqual(s.score.losses, 1)
+        XCTAssertEqual(s.score.count(.lossContinues), 1)
+    }
+}

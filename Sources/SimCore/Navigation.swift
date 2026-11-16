@@ -99,6 +99,8 @@ public struct DepartureInfo: Equatable {
     public var handedOff = false
     /// Set once the player gives a heading, direct or route. A departure without a SID flies runway heading until then.
     public var vectored = false
+    /// Where the departure leaves the area: its SID's last fix, or a fix near the area edge picked for it.
+    public var exitFix: String?
     /// Level in the flight plan: where the next sector expects the aircraft to be climbing to.
     public var expectedLevelFt: Int
     /// The aircraft must be at least this high, and cleared at least this high, before it can be handed off.

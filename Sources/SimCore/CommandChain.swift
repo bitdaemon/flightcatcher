@@ -18,7 +18,7 @@ public struct CommandChain: Equatable {
         case .descend, .climb: return .altitude
         case .heading: return .heading
         case .speed: return .speed
-        case .direct, .route: return .direct
+        case .direct, .route, .resumeNavigation: return .direct
         case .cross(let fix, _): return .crossing(fix)
         case .approach, .visualApproach, .joinApproach, .lineUp, .takeoff: return .clearance
         case .handoff: return .handoff
@@ -79,6 +79,7 @@ extension Command {
         case .takeoff: return "TAKE-OFF"
         case .handoff: return "HANDOFF"
         case .maintain: return "MAINT"
+        case .resumeNavigation: return "OWN NAV"
         }
     }
 }

@@ -36,7 +36,7 @@ final class ControlModel: ObservableObject {
         case .speed: return "Speed: choose a speed (Shift expedites). Esc goes back."
         case .crossFix: return "Cross: click a highlighted fix on the route. Esc goes back."
         case .crossAltitude: return "\(crossFix ?? "Fix"): choose the altitude to cross at. Esc goes back."
-        case .approach: return "Approach: choose a runway to join the localiser, or an approach to fly. Esc goes back."
+        case .approach: return "Approach: pick from the list beside the aircraft (or the buttons on the scope). Esc goes back."
         case .colour: return "Colour: choose a marker colour for this aircraft. Esc goes back."
         case .macro: return "Macro: choose a macro to run on this aircraft, or stop the one it is running. Esc goes back."
         case .ring, .idle: return nil
@@ -172,8 +172,8 @@ final class ControlModel: ObservableObject {
     func send(using runner: SimRunner) {
         guard let target, !chain.isEmpty else { return }
         var refused = false
-        for issued in chain.issued() {
-            if case .refused = runner.issue(issued) { refused = true }
+        for result in runner.issueChain(chain.issued()) {
+            if case .refused = result { refused = true }
         }
         if refused { NSSound.beep() }
         runner.selectedCallsign = target

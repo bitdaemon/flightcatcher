@@ -101,6 +101,8 @@ final class SimRunner: ObservableObject {
     @Published private(set) var fixIds: Set<String> = []
     /// Approaches that `j ID` can join, by procedure ID.
     @Published private(set) var approachJoins: [String: ApproachJoin] = [:]
+    /// Fix positions in the scope's local NM, for ranking approaches by distance ("j01l").
+    private(set) var fixPositions: [String: (east: Double, north: Double)] = [:]
     /// The player's airspace (saved between runs): arrivals are handed in at its edge, departures handed off inside it.
     @Published var areaRadiusNM: Double = UserDefaults.standard.object(forKey: "areaRadiusNM") as? Double ?? 40 {
         didSet { UserDefaults.standard.set(areaRadiusNM, forKey: "areaRadiusNM"); sim.areaRadiusNM = areaRadiusNM }
@@ -239,6 +241,14 @@ final class SimRunner: ObservableObject {
         airport = loaded
         fixIds = Set((loaded?.fixes ?? []).map(\.id))
         approachJoins = loaded?.approachJoins ?? [:]
+        fixPositions = [:]
+        if let loaded {
+            let projection = loaded.referenceProjection
+            for fix in loaded.fixes {
+                let q = projection.nm(lat: fix.lat, lon: fix.lon)
+                fixPositions[fix.id] = (q.east, q.north)
+            }
+        }
         macros = loaded.map { MacroStore.load(icao: $0.icao) } ?? []
         sim = Simulation(seed: seed, transitionAltitudeFt: loaded?.transitionAltitudeFt ?? 5000, airport: loaded)
         sim.weatherMode = weatherMode
@@ -405,6 +415,21 @@ final class SimRunner: ObservableObject {
         let result = sim.issue(issued)
         publish()
         return result
+    }
+
+    /// Sends a chain of instructions to one aircraft, in order. The radio log shows the whole chain as one command-bar
+    /// line on its first call.
+    @discardableResult
+    func issueChain(_ chain: [IssuedCommand]) -> [IssueResult] {
+        guard let callsign = chain.first?.callsign else { return [] }
+        let before = sim.radioLog.last?.id ?? -1
+        let results = chain.map { sim.issue($0) }
+        if chain.count > 1 {
+            sim.labelChain(callsign: callsign, afterMessageID: before,
+                           code: Command.chainCode(callsign: callsign, commands: chain.map(\.command)))
+        }
+        publish()
+        return results
     }
 
     /// Start-up traffic: a random number of arrivals already flying STARs, at random points, with random types and

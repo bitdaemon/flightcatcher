@@ -147,7 +147,7 @@ public struct Aircraft: Equatable, Identifiable {
             if groundPhase == .holdingShort || groundPhase == .linedUp { groundPhase = .takeoffRoll }
         case .handoff:
             if departure != nil { departure?.handedOff = true } else { handedToTower = true }
-        case .approach, .visualApproach, .direct, .route, .joinApproach:
+        case .approach, .visualApproach, .direct, .route, .joinApproach, .resumeNavigation:
             break // need airport data: the simulation sets the route and calls clearForApproach
         }
     }

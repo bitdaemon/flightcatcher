@@ -22,9 +22,18 @@ struct RadioLogView: View {
                             HStack(alignment: .firstTextBaseline, spacing: 0) {
                                 columns(message)
                                     .fixedSize()
-                                Text(message.text)
-                                    .foregroundColor(colour)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(message.text)
+                                        .foregroundColor(colour)
+                                    // The instruction as it would be typed on the command bar.
+                                    if let code = message.code {
+                                        Text("> " + code)
+                                            .font(.ui(size: 10, design: .monospaced))
+                                            .foregroundColor(theme.dimText)
+                                            .textSelection(.enabled)
+                                    }
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
                             }
                             .font(mono.weight(mine ? .bold : .regular))
                         }

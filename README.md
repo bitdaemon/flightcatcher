@@ -38,6 +38,7 @@ Native Swift, SwiftUI Canvas scope, deterministic simulation engine. No accounts
 - Pilots read back instructions with a short delay, and refuse what they can't do ("Unable: ..."), including the minimum vectoring altitude and closed runways. A pilot who cannot make an intercept says so ("we're heading 090, we'll need a vector"), and one established but too high asks for lower.
 - Approach logic: localiser and glideslope capture, a stable-approach gate with go-around, and a tower handoff once established. Visual approaches are built from the runway itself.
 - Take-off clearances carry the departure instruction: "BOFUM one Alfa departure, climb and maintain three thousand feet, runway zero four right, cleared for take-off", or for a runway without a SID, "fly runway heading, climb to three thousand feet, ...".
+- Every departure has an exit fix: the last fix of its SID, or, without a SID, a fix near the edge of the area picked for it. It is shown in the tag (`EXIT → BCE`) and the strip, drawn as a dotted line when the departure is selected, and `p exit` sends the aircraft direct to it. Handing off a departure heading for its exit earns +20; more than 90° away costs −30.
 - A departure without a SID shows RWY HDG in its tag until you give it a heading, direct or route; the line turns to the warning colour once it is airborne and still waiting for a vector.
 - Departures handed off once above their handoff level and cleared to their plan level.
 

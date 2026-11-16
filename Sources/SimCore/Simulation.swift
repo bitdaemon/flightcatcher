@@ -11,6 +11,9 @@ public struct RadioMessage: Equatable, Identifiable {
     public var callsign: String? = nil
     /// What kind of notable call this is (refusal, emergency, go-around...), for the radio window's tag column.
     public var tag: RadioTag? = nil
+    /// Controller calls: the instruction as it would be typed on the command bar ("aal123 d70 s180"). For a chain,
+    /// the whole chain is on its first call and the others have none.
+    public var code: String? = nil
 }
 
 /// A label for the calls that matter, shown in the radio window between the callsign and the message.
@@ -358,6 +361,8 @@ public final class Simulation {
             return Array(ac.route[i...])
         }
         guard let airport else { return [] }
+        // A departure goes straight to the fix; STAR and approach tails are for arrivals.
+        if ac.departure != nil { return routePoints(for: [Leg(fixId: fix)]) }
         let preferredRunway = ac.approach?.ils.runwayId
         func tail(_ kind: ProcedureKind) -> [RoutePoint]? {
             for proc in airport.procedures where proc.kind == kind && isAvailable(proc) {
@@ -776,12 +781,62 @@ public final class Simulation {
         ac.departure = DepartureInfo(runway: runway.id, sid: sid?.id ?? "", initialAltitudeFt: initial,
                                      fieldElevationFt: elevation, rotateSpeedKt: rotate,
                                      expectedLevelFt: expected, handoffAltitudeFt: max(initial, handoffAt))
+        ac.departure?.exitFix = sid?.legs.last?.fixId ?? pickExitFix(runway: runway)
         ac.groundPhase = .holdingShort
         ac.levelFloorFt = levelFloorFt
         ac.approachLevelFloorFt = approachLevelFloorFt
         aircraft.append(ac)
         log(.pilot, "Holding point runway \(Phraseology.spokenRunway(runway.id)), ready for departure, \(Phraseology.spokenCallsign(ac))", callsign: ac.callsign)
     }
+
+    /// An exit for a departure without a SID: a random fix between 60% and 130% of the area radius out, not within 45
+    /// degrees of the final approach to its own runway (behind the departure, where the arrivals are). Falls back to
+    /// the farthest fix. Nil when the airport has no fixes.
+    private func pickExitFix(runway: Runway) -> String? {
+        let finalBearing = runway.trueBearingDeg + 180
+        let all = fixIndex.map { (id: $0.key, east: $0.value.east, north: $0.value.north) }.sorted { $0.id < $1.id }
+        let candidates = all.filter { f in
+            let d = hypot(f.east, f.north)
+            let bearing = Aircraft.bearingDeg(eastNM: f.east, northNM: f.north)
+            return d >= areaRadiusNM * 0.6 && d <= areaRadiusNM * 1.3
+                && abs(Aircraft.signedTurn(from: finalBearing, to: bearing)) > 45
+        }
+        if !candidates.isEmpty { return candidates[Int(trafficRng.next() % UInt64(candidates.count))].id }
+        return all.max { hypot($0.east, $0.north) < hypot($1.east, $1.north) }?.id
+    }
+
+    /// The route an aircraft rejoins on "resume own navigation": its assigned STAR or SID (or the fix of a direct-to-fix
+    /// arrival), a departure's exit fix at the end, starting at the far end of the route segment nearest the aircraft.
+    /// Empty when it has nothing to resume.
+    func resumeRoute(for ac: Aircraft) -> [RoutePoint] {
+        var points: [RoutePoint] = []
+        if let id = ac.procedureId {
+            if let proc = airport?.procedures.first(where: { $0.id == id }) {
+                points = routePoints(for: proc.legs)
+            } else if id.hasPrefix("DCT ") {
+                points = routePoints(for: [Leg(fixId: String(id.dropFirst(4)))])
+            }
+        }
+        if let exit = ac.departure?.exitFix, points.last?.id != exit {
+            points += routePoints(for: [Leg(fixId: exit)])
+        }
+        guard points.count > 1 else { return points }
+        // Nearest segment; rejoin at its far end.
+        var best = 1
+        var bestDistance = Double.infinity
+        for k in 0..<(points.count - 1) {
+            let a = points[k], b = points[k + 1]
+            let dx = b.eastNM - a.eastNM, dy = b.northNM - a.northNM
+            let length2 = dx * dx + dy * dy
+            let t = length2 > 0 ? max(0, min(1, ((ac.eastNM - a.eastNM) * dx + (ac.northNM - a.northNM) * dy) / length2)) : 0
+            let d = hypot(ac.eastNM - (a.eastNM + t * dx), ac.northNM - (a.northNM + t * dy))
+            if d < bestDistance { bestDistance = d; best = k + 1 }
+        }
+        return Array(points[best...])
+    }
+
+    /// Position of a fix of the loaded airport, in local NM.
+    public func fixPosition(_ id: String) -> (east: Double, north: Double)? { fixIndex[id] }
 
     /// The other end of the same strip: 28L is 10R.
     public static func oppositeRunway(_ id: String) -> String {
@@ -1096,17 +1151,20 @@ public final class Simulation {
             trace.blocker = ""
             trace.blockerSinceTick = tickCount
         }
-        if app.phase == .intercepting {
+        if app.phase == .intercepting, ac.route.indices.contains(ac.routeIndex) {
+            // Still flying route fixes towards the final (a STAR or the approach's transition): not capturing yet is
+            // expected, so no "not captured" or "STALLED" lines; the wait starts when the route runs out.
+            trace.routeTick = tickCount
+            trace.blocker = ""
+        } else if app.phase == .intercepting {
             // Log when the kind of blocker changes, not on every second its numbers move (heading 96, 99, 102...).
             let kind = blocker.filter { !$0.isNumber && $0 != "." }
             if kind != trace.blocker {
-                let flying = ac.route.indices.contains(ac.routeIndex)
-                    ? " (flying the route, \(ac.route.count - ac.routeIndex) left, target heading \(Int(ac.targetHeadingDeg.rounded())))" : ""
-                debug("approach", ac.callsign, blocker.isEmpty ? "can capture now" : "not captured: \(blocker)\(flying)")
+                debug("approach", ac.callsign, blocker.isEmpty ? "can capture now" : "not captured: \(blocker)")
                 trace.blocker = kind
                 trace.blockerSinceTick = tickCount
             }
-            let waited = tickCount - trace.clearedAtTick
+            let waited = tickCount - max(trace.clearedAtTick, trace.routeTick ?? trace.clearedAtTick)
             if waited > 0, waited % 30 == 0 {
                 let p = app.ils.position(eastNM: ac.eastNM, northNM: ac.northNM)
                 debug("state", ac.callsign,
@@ -1150,6 +1208,11 @@ public final class Simulation {
         guard let ac = aircraft.first(where: { $0.callsign == issued.callsign }) else {
             return .refused("no such aircraft")
         }
+        // "p exit": direct to the departure's exit fix.
+        if case .direct(let fix) = issued.command, fix == Command.exitFixToken {
+            guard let exit = ac.departure?.exitFix else { return .refused("\(ac.callsign) has no exit fix") }
+            issued.command = .direct(fix: exit)
+        }
         if let reason = issued.command.refusal(for: ac) { return .refused(reason) }
         switch issued.command {
         case .approach(let runway):
@@ -1160,6 +1223,8 @@ public final class Simulation {
             if let reason = closedReason(runway: runway) { return refuseClosed(runway, reason, callsign: issued.callsign) }
         case .direct(let fix):
             if fixIndex[fix] == nil { return .refused("unknown fix \(fix)") }
+        case .resumeNavigation:
+            if resumeRoute(for: ac).isEmpty { return .refused("\(ac.callsign) has no route to resume") }
         case .route(let fixes):
             if let bad = fixes.first(where: { fixIndex[$0] == nil }) { return .refused("unknown fix \(bad)") }
         case .cross(let fix, _):
@@ -1188,7 +1253,8 @@ public final class Simulation {
 
         var controllerCall = Phraseology.controllerCall(issued.command, for: ac, transitionAltitudeFt: transitionAltitudeFt)
         if case .takeoff = issued.command { controllerCall = Phraseology.takeoffCall(for: ac, wind: wind, transitionAltitudeFt: transitionAltitudeFt) }
-        log(.controller, controllerCall, callsign: issued.callsign)
+        log(.controller, controllerCall, callsign: issued.callsign,
+            code: Command.chainCode(callsign: issued.callsign, commands: [issued.command]))
         var delay = 3 + Int(rng.next() % 4) // 3 to 6 seconds
         // Instructions to one aircraft are carried out in the order they were given.
         if let latest = pending.filter({ $0.callsign == issued.callsign }).map(\.executeAtTick).max() {
@@ -1237,21 +1303,29 @@ public final class Simulation {
         var current: [String: Conflict.Kind] = [:]
         for c in conflicts {
             current[c.id] = c.kind
+            // Two arrivals both handed to the tower are the tower's to separate (on final it works to reduced
+            // spacing): still shown on the scope, but no points and not counted as your loss.
+            let withTower = isWithTower(c.first) && isWithTower(c.second)
             let before = alertedKinds[c.id]
             if before == nil || (before == .predicted && c.kind == .loss) {
                 switch c.kind {
                 case .predicted:
+                    if withTower { break }
                     log(.system, "CONFLICT \(c.first) / \(c.second): separation lost in \(c.secondsToLoss) s on current tracks", tag: .conflict)
                     addScore(.conflictAlert, detail: "\(c.first) / \(c.second)")
                 case .loss:
+                    if withTower {
+                        log(.system, "\(c.first) / \(c.second) closer than \(Int(SeparationMinima.lateralNM)) NM on final, both with the tower (not counted)")
+                        break
+                    }
                     lossOfSeparationCount += 1
                     log(.system, "LOSS OF SEPARATION \(c.first) / \(c.second): \(String(format: "%.1f", c.lateralNM)) NM, \(Int(c.verticalFt.rounded())) ft", tag: .lossOfSeparation)
                     score.losses += 1
                     addScore(.lossOfSeparation, detail: "\(c.first) / \(c.second)")
                 }
             }
-            // A loss that goes on keeps costing points.
-            if c.kind == .loss {
+            // A loss that goes on keeps costing points, until both aircraft are with the tower.
+            if c.kind == .loss, !withTower {
                 let seconds = (lossSeconds[c.id] ?? 0) + 1
                 lossSeconds[c.id] = seconds
                 if seconds % ScoreRules.lossStepSeconds == 0 {
@@ -1263,8 +1337,24 @@ public final class Simulation {
         alertedKinds = current
     }
 
-    private func log(_ speaker: RadioMessage.Speaker, _ text: String, callsign: String? = nil, tag: RadioTag? = nil) {
-        radioLog.append(RadioMessage(id: nextMessageID, tick: tickCount, speaker: speaker, text: text, callsign: callsign, tag: tag))
+    private func isWithTower(_ callsign: String) -> Bool {
+        aircraft.first { $0.callsign == callsign }?.handedToTower ?? false
+    }
+
+    /// After a chain was sent: its controller calls to `callsign` since message `id` share one code, shown on the first.
+    public func labelChain(callsign: String, afterMessageID id: Int, code: String) {
+        let calls = radioLog.indices.filter {
+            radioLog[$0].id > id && radioLog[$0].speaker == .controller && radioLog[$0].callsign == callsign
+        }
+        guard let first = calls.first else { return }
+        for i in calls { radioLog[i].code = nil }
+        radioLog[first].code = code
+    }
+
+    private func log(_ speaker: RadioMessage.Speaker, _ text: String, callsign: String? = nil, tag: RadioTag? = nil,
+                     code: String? = nil) {
+        radioLog.append(RadioMessage(id: nextMessageID, tick: tickCount, speaker: speaker, text: text, callsign: callsign,
+                                     tag: tag, code: code))
         nextMessageID += 1
         if radioLog.count > 200 { radioLog.removeFirst(radioLog.count - 200) }
     }
@@ -1292,6 +1382,17 @@ public final class Simulation {
             score.departuresHandled += 1
             addScore(.departureHandoff, callsign: ac.callsign)
             if Int(ac.targetAltitudeFt.rounded()) >= d.expectedLevelFt { addScore(.departureAtPlanLevel, callsign: ac.callsign) }
+            if let exit = d.exitFix, let p = fixIndex[exit] {
+                let onRoute = ac.routeIndex < ac.route.count && ac.route[ac.routeIndex...].contains { $0.id == exit }
+                let toExit = Aircraft.bearingDeg(eastNM: p.east - ac.eastNM, northNM: p.north - ac.northNM)
+                let off = abs(Aircraft.signedTurn(from: ac.headingDeg, to: toExit))
+                let close = hypot(p.east - ac.eastNM, p.north - ac.northNM) < 3
+                if onRoute || close || off <= ScoreRules.exitAlignedDeg {
+                    addScore(.exitDirection, callsign: ac.callsign, detail: "\(ac.callsign) towards \(exit)")
+                } else if off > ScoreRules.exitWrongWayDeg {
+                    addScore(.exitWrongWay, callsign: ac.callsign, detail: "\(ac.callsign), \(Int(off.rounded()))\u{00B0} off \(exit)")
+                }
+            }
             return
         }
         score.arrivalsHandled += 1
@@ -1503,6 +1604,12 @@ public final class Simulation {
                 aircraft[i].clearForApproach(ils, extraRoute: extra)
             case .direct(let fix):
                 aircraft[i].setRoute(directRoute(for: aircraft[i], to: fix))
+            case .resumeNavigation:
+                let route = resumeRoute(for: aircraft[i])
+                aircraft[i].setRoute(route)
+                if let next = route.first {
+                    log(.system, "\(p.callsign) resumes own navigation, next \(next.id)", callsign: p.callsign)
+                }
             case .route(let fixes):
                 aircraft[i].setRoute(routePoints(for: fixes.map { Leg(fixId: $0) }))
             case .lineUp:
@@ -1569,7 +1676,8 @@ public final class Simulation {
                     log(.system, "\(ac.callsign) airborne runway \(runway)", callsign: ac.callsign)
                 case .checkedIn(let passing, let climbing, let sid):
                     log(.pilot, Phraseology.departureCheckIn(for: ac, passingFt: passing, climbingToFt: climbing, sid: sid,
-                                                             transitionAltitudeFt: transitionAltitudeFt), callsign: ac.callsign)
+                                                             transitionAltitudeFt: transitionAltitudeFt,
+                                                             exitFix: ac.departure?.exitFix), callsign: ac.callsign)
                 case .wentAround(let reason):
                     log(.pilot, "Going around, \(Phraseology.spokenCallsign(ac))", callsign: ac.callsign, tag: .goAround)
                     log(.system, "\(ac.callsign) go-around: \(reason)", callsign: ac.callsign, tag: .goAround)

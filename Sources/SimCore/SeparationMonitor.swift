@@ -6,6 +6,13 @@ public enum SeparationMinima {
     public static let verticalFt = 1000.0
     /// How far ahead the straight-line prediction looks.
     public static let lookaheadSeconds = 120
+    /// Parallel approaches, both aircraft established on approaches to different, parallel runways (courses within
+    /// 5 degrees). Approximations of the FAA rules, not the full set:
+    /// runways at least this far apart (4,300 ft) are flown as independent approaches: no minimum between the pair.
+    public static let independentParallelSpacingNM = 4300.0 / 6076.0
+    /// closer runways are dependent approaches: this diagonal distance instead of the normal lateral minimum.
+    public static let dependentParallelDiagonalNM = 1.5
+    public static let parallelCourseToleranceDeg = 5.0
 }
 
 public struct Conflict: Equatable, Identifiable {
@@ -59,8 +66,25 @@ public enum SeparationMonitor {
         }
     }
 
+    /// The lateral minimum for a pair established on parallel approaches: 0 for independent runways, the dependent
+    /// diagonal for closer ones, nil when the normal minima apply.
+    static func parallelApproachMinimum(_ a: Aircraft, _ b: Aircraft) -> Double? {
+        guard let x = a.approach, let y = b.approach, x.phase != .intercepting, y.phase != .intercepting,
+              x.ils.runwayId != y.ils.runwayId else { return nil }
+        var diff = abs(x.ils.courseDeg - y.ils.courseDeg).truncatingRemainder(dividingBy: 360)
+        if diff > 180 { diff = 360 - diff }
+        guard diff <= SeparationMinima.parallelCourseToleranceDeg else { return nil }
+        let spacing = abs(x.ils.position(eastNM: y.ils.thresholdEastNM, northNM: y.ils.thresholdNorthNM).cross)
+        return spacing >= SeparationMinima.independentParallelSpacingNM ? 0 : SeparationMinima.dependentParallelDiagonalNM
+    }
+
     private static func check(_ a: Aircraft, _ b: Aircraft, wind: Wind, lateralNM: Double, verticalFt: Double,
                               lookahead: Int) -> Conflict? {
+        var lateralNM = lateralNM
+        if let parallel = parallelApproachMinimum(a, b) {
+            if parallel == 0 { return nil }
+            lateralNM = parallel
+        }
         let now = separation(a, b, wind: wind, after: 0)
         if now.lateral < lateralNM && now.vertical < verticalFt {
             return Conflict(first: a.callsign, second: b.callsign, kind: .loss, secondsToLoss: 0,
@@ -84,14 +108,40 @@ public enum SeparationMonitor {
         return (lateral, abs(pa.altitude - pb.altitude))
     }
 
-    private static func position(_ ac: Aircraft, wind: Wind, after t: Double) -> (east: Double, north: Double, altitude: Double) {
-        let rad = ac.headingDeg * .pi / 180
-        let distance = ac.speedKt / 3600 * t
+    /// Where an aircraft will be after `t` seconds. An aircraft with route fixes ahead (and not established on an
+    /// approach) is moved along them, turning at each fix, then straight on along the last leg; others fly straight
+    /// on their heading. Turns are taken as instant. Altitude moves toward the target at the climb or descent rate.
+    static func position(_ ac: Aircraft, wind: Wind, after t: Double) -> (east: Double, north: Double, altitude: Double) {
         let delta = ac.targetAltitudeFt - ac.altitudeFt
         let rate = (delta >= 0 ? ac.climbRateFpm : ac.descentRateFpm) / 60 * t
         let altitude = ac.altitudeFt + (delta >= 0 ? min(rate, delta) : max(-rate, delta))
         let w = wind.vectorKt(atAltitudeFt: ac.altitudeFt)
-        return (ac.eastNM + sin(rad) * distance + w.east / 3600 * t,
-                ac.northNM + cos(rad) * distance + w.north / 3600 * t, altitude)
+        var east = ac.eastNM, north = ac.northNM
+        var heading = ac.headingDeg
+        var left = ac.speedKt / 3600 * t
+        let followsRoute = ac.routeIndex < ac.route.count && (ac.approach == nil || ac.approach?.phase == .intercepting)
+        if followsRoute, left > 0 {
+            for point in ac.route[ac.routeIndex...] {
+                let dx = point.eastNM - east, dy = point.northNM - north
+                let d = (dx * dx + dy * dy).squareRoot()
+                guard d > 1e-6 else { continue }
+                heading = atan2(dx, dy) * 180 / .pi
+                if d >= left {
+                    east += dx / d * left
+                    north += dy / d * left
+                    left = 0
+                    break
+                }
+                east = point.eastNM
+                north = point.northNM
+                left -= d
+            }
+        }
+        if left > 0 {
+            let rad = heading * .pi / 180
+            east += sin(rad) * left
+            north += cos(rad) * left
+        }
+        return (east + w.east / 3600 * t, north + w.north / 3600 * t, altitude)
     }
 }

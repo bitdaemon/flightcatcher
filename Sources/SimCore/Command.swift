@@ -28,6 +28,9 @@ public indirect enum Command: Equatable {
     /// Cancel the route, crossing restriction, expedites and an approach still being intercepted, and keep the present
     /// heading, altitude and speed.
     case maintain
+    /// Resume own navigation: rejoin the assigned STAR, SID or direct-to-fix route at the next fix after the nearest
+    /// part of it (departures continue to their exit fix). The simulation builds the route.
+    case resumeNavigation
     /// Departures: line up on the runway and wait.
     case lineUp
     /// Departures: cleared for take-off from the holding point or from the line-up position.
@@ -53,6 +56,7 @@ public indirect enum Command: Equatable {
             return "proceed direct \(via), cleared \(ApproachType(procedureId: procedure).spoken) approach runway \(runway) (\(procedure))"
         case .expedite(let inner): return "expedite: " + inner.summary
         case .maintain: return "maintain present heading, altitude and speed"
+        case .resumeNavigation: return "resume own navigation"
         case .lineUp: return "line up and wait"
         case .takeoff: return "cleared for take-off"
         case .handoff: return "contact the next controller (tower for an arrival)"
@@ -61,6 +65,38 @@ public indirect enum Command: Equatable {
 }
 
 /// Placeholder limits until real minimum vectoring altitudes and OpenAP speed envelopes are modelled.
+extension Command {
+    /// "p exit": direct to the departure's exit fix. The simulation swaps in the real fix.
+    public static let exitFixToken = "EXIT"
+
+    /// The instruction as it would be typed on the command bar: "d70", "h270l", "p kerav pizsa", "j r27.aybee".
+    public var code: String {
+        switch self {
+        case .descend(let feet): return "d\(feet / 100)"
+        case .climb(let feet): return "c\(feet / 100)"
+        case .heading(let degrees, let turn):
+            return "h" + Phraseology.pad3(degrees) + (turn == .left ? "l" : (turn == .right ? "r" : ""))
+        case .speed(let knots): return "s\(knots)"
+        case .approach(let runway), .visualApproach(let runway): return "i" + runway.lowercased()
+        case .direct(let fix): return "p " + fix.lowercased()
+        case .route(let fixes): return "p " + fixes.map { $0.lowercased() }.joined(separator: " ")
+        case .cross(let fix, let feet): return "x \(fix.lowercased()) \(feet / 100)"
+        case .joinApproach(let procedure, _, _): return "j " + procedure.lowercased()
+        case .expedite(let inner): return inner.code + "!"
+        case .maintain: return "m"
+        case .resumeNavigation: return "own"
+        case .lineUp: return "lu"
+        case .takeoff: return "to"
+        case .handoff: return "ho"
+        }
+    }
+
+    /// "aal123 d70 s180 h270l": a callsign and its instructions as one command-bar line.
+    public static func chainCode(callsign: String, commands: [Command]) -> String {
+        ([callsign.lowercased()] + commands.map(\.code)).joined(separator: " ")
+    }
+}
+
 public enum CommandLimits {
     public static let minimumLevelFt = 2000
     /// Lowest level for an aircraft already cleared for the approach, so it can be put on the glidepath:
@@ -140,7 +176,7 @@ extension Command {
             if let phase = aircraft.approach?.phase, phase != .intercepting {
                 return "established on the approach, give a heading to break off"
             }
-        case .approach, .visualApproach, .direct, .joinApproach:
+        case .approach, .visualApproach, .direct, .joinApproach, .resumeNavigation:
             break // availability depends on the airport data; the simulation checks it
         case .expedite(let inner):
             switch inner {

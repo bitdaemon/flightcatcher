@@ -16,7 +16,9 @@ struct CommandBarView: View {
 
     private var result: CommandBarResult {
         CommandBar.evaluate(input: input, aircraft: runner.aircraft, selected: runner.selectedCallsign,
-                            knownFixes: runner.fixIds, approaches: runner.approachJoins)
+                            knownFixes: runner.fixIds, approaches: runner.approachJoins,
+                            fixPositions: runner.fixPositions,
+                            openRunways: Set(runner.runwayStatuses.filter(\.isOpen).map(\.id)))
     }
 
     var body: some View {
@@ -94,8 +96,8 @@ struct CommandBarView: View {
             return
         }
         var anyRefused = false
-        for command in current.issuedAll {
-            if case .refused = runner.issue(command) { anyRefused = true }
+        for result in runner.issueChain(current.issuedAll) {
+            if case .refused = result { anyRefused = true }
         }
         if anyRefused { NSSound.beep() }
         runner.selectedCallsign = issued.callsign

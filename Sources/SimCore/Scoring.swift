@@ -26,12 +26,12 @@ public enum ScoreCategory: String, CaseIterable, Codable, Identifiable {
 public enum ScoreKind: String, CaseIterable, Codable {
     case arrivalHandoff, landed, departureHandoff, departureAtPlanLevel, emergencyLanded, efficiency
     case lossOfSeparation, lossContinues, conflictAlert, goAroundCaused, missedHandoff, routeEndedNoClearance
-    case refused, departureDelay, runwayHeadingUnvectored, emergencyIgnored
+    case refused, departureDelay, runwayHeadingUnvectored, emergencyIgnored, exitDirection, exitWrongWay
 
     public var category: ScoreCategory {
         switch self {
         case .arrivalHandoff, .landed: return .arrivals
-        case .departureHandoff, .departureAtPlanLevel, .missedHandoff: return .departures
+        case .departureHandoff, .departureAtPlanLevel, .missedHandoff, .exitDirection, .exitWrongWay: return .departures
         case .efficiency: return .efficiency
         case .emergencyLanded, .emergencyIgnored: return .emergencies
         case .lossOfSeparation, .lossContinues, .conflictAlert: return .safety
@@ -58,6 +58,8 @@ public enum ScoreKind: String, CaseIterable, Codable {
         case .departureDelay: return "departure waiting"
         case .runwayHeadingUnvectored: return "departure not vectored"
         case .emergencyIgnored: return "emergency waiting for a clearance"
+        case .exitDirection: return "handed off towards its exit"
+        case .exitWrongWay: return "handed off the wrong way"
         }
     }
 }
@@ -69,8 +71,12 @@ public enum ScoreRules {
         .efficiency: 30, // the most; scaled down by `efficiencyBonus`
         .lossOfSeparation: -300, .lossContinues: -50, .conflictAlert: -10, .goAroundCaused: -100,
         .missedHandoff: -150, .routeEndedNoClearance: -50, .refused: -5, .departureDelay: -1,
-        .runwayHeadingUnvectored: -20, .emergencyIgnored: -50,
+        .runwayHeadingUnvectored: -20, .emergencyIgnored: -50, .exitDirection: 20, .exitWrongWay: -30,
     ]
+    /// A departure handed off within this many degrees of its exit fix (or on a route through it) earns `exitDirection`;
+    /// more than `exitWrongWayDeg` off costs `exitWrongWay`.
+    public static let exitAlignedDeg = 30.0
+    public static let exitWrongWayDeg = 90.0
     /// A loss of separation costs `lossContinues` again for every this many seconds it lasts.
     public static let lossStepSeconds = 10
     /// A departure may wait this long at the holding point before it costs a point a minute.
@@ -192,9 +198,9 @@ public struct ScoreCard: Codable, Equatable {
     }
 
     /// Nil until at least one aircraft has been handled. Quality is raw points against the most the handled aircraft
-    /// could have earned (150 an arrival, 100 a departure). One loss of separation caps the grade at C, three at E.
+    /// could have earned (150 an arrival, 120 a departure). One loss of separation caps the grade at C, three at E.
     public var grade: ScoreGrade? {
-        let potential = arrivalsHandled * 150 + departuresHandled * 100
+        let potential = arrivalsHandled * 150 + departuresHandled * 120
         guard potential > 0 else { return nil }
         let quality = Double(raw) / Double(potential)
         var grade: ScoreGrade

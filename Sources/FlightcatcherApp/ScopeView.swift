@@ -238,14 +238,29 @@ struct ScopeView: View {
         // An aircraft handed to the tower is no longer the controller's: just its callsign.
         if ac.handedToTower { return [ac.callsign] }
         var lines = [ac.labelTop, ac.labelBottom]
-        if ac.onRunwayHeading { lines.append("RWY HDG") }
+        // Departures show their exit fix; one still on runway heading says so on the same line.
+        if let d = ac.departure, !d.handedOff {
+            let exit = d.exitFix.map { " \u{2192} \($0)" } ?? ""
+            if ac.onRunwayHeading {
+                lines.append("RWY HDG" + exit)
+            } else if !exit.isEmpty {
+                lines.append("EXIT" + exit)
+            }
+        }
         if let emergency = ac.emergency { lines.insert(emergency.urgencyWord, at: 1) }
         if let text = commandTags[ac.callsign] { lines.append(text) }
         if let text = macroTags[ac.callsign] { lines.append(text) }
         return lines
     }
 
+    /// Departures waiting at the holding point or lined up have no tag until they are cleared for take-off; their
+    /// symbol, strip and radial menu stay.
+    private func showsTag(_ ac: Aircraft) -> Bool {
+        ac.groundPhase != .holdingShort && ac.groundPhase != .linedUp
+    }
+
     private func tagFrame(_ ac: Aircraft, size: CGSize) -> CGRect {
+        guard showsTag(ac) else { return .null }
         let p = screenPoint(of: ac, size: size)
         let o = tags.offset(for: ac.callsign)
         let s = TagPlacement.size(lines: tagLines(ac), charWidth: 6.7 * UIScale.factor, lineHeight: 13 * UIScale.factor)
@@ -261,7 +276,7 @@ struct ScopeView: View {
     }
 
     private func tagItems(size: CGSize) -> [TagItem] {
-        aircraft.map {
+        aircraft.filter(showsTag).map {
             TagItem(callsign: $0.callsign, symbol: screenPoint(of: $0, size: size), size: TagPlacement.size(lines: tagLines($0), charWidth: 6.7 * UIScale.factor, lineHeight: 13 * UIScale.factor))
         }
     }
@@ -311,6 +326,8 @@ struct ScopeView: View {
         }
         items.append(RingItem(id: "xng", label: "XNG", action: .mode(.crossFix), enabled: true, secondary: true))
         items.append(RingItem(id: "mnt", label: "MAINT", action: .command(.maintain), enabled: !ac.handedToTower, secondary: true))
+        items.append(RingItem(id: "own", label: "OWN", action: .command(.resumeNavigation),
+                              enabled: !ac.handedToTower && (ac.procedureId != nil || ac.departure?.exitFix != nil), secondary: true))
         items.append(RingItem(id: "mac", label: "MAC", action: .mode(.macro),
                               enabled: !ac.handedToTower && (!(macroChoices?(ac) ?? []).isEmpty || macroTags[ac.callsign] != nil),
                               secondary: true))
@@ -408,6 +425,7 @@ struct ScopeView: View {
                 }
                 if controls.mode == .approach {
                     approachButtons(for: ac, size: size)
+                    approachList(for: ac, at: p, size: size)
                 }
                 if controls.mode == .direct && !controls.pendingRoute.isEmpty {
                     HStack(spacing: 6) {
@@ -472,6 +490,73 @@ struct ScopeView: View {
             ValueColumnView.Item(id: knots, label: "\(knots) kt", isCurrent: abs(knots - current) < 5,
                                  enabled: Command.speed(knots: knots).refusal(for: ac) == nil)
         }
+    }
+
+    /// One choice in the approach list: an approach to join, how far its first fix is, and whether that fix is on the
+    /// aircraft's route already.
+    private struct ApproachChoice: Identifiable {
+        let proc: Procedure
+        let runway: String
+        let firstFix: String
+        let nm: Double
+        let onRoute: Bool
+        var id: String { proc.id }
+    }
+
+    /// The approaches to a runway this aircraft can join, best first: those starting at a fix on its route, then
+    /// nearest first fix. At most `limit`.
+    private func approachChoices(for ac: Aircraft, runway: String, limit: Int = 3) -> [ApproachChoice] {
+        let ahead = ac.routeIndex < ac.route.count ? Set(ac.route[ac.routeIndex...].map(\.id)) : []
+        let choices: [ApproachChoice] = availableApproaches.compactMap { proc in
+            guard proc.runways.contains(runway), let first = proc.legs.first,
+                  let fix = airport.fixes.first(where: { $0.id == first.fixId }) else { return nil }
+            let q = airport.referenceProjection.nm(lat: fix.lat, lon: fix.lon)
+            return ApproachChoice(proc: proc, runway: runway, firstFix: first.fixId,
+                                  nm: hypot(q.east - ac.eastNM, q.north - ac.northNM), onRoute: ahead.contains(first.fixId))
+        }
+        return Array(choices.sorted { ($0.onRoute ? 0 : 1, $0.nm) < ($1.onRoute ? 0 : 1, $1.nm) }.prefix(limit))
+    }
+
+    /// The approach list beside the aircraft: one line per open runway with its ILS (or visual) clearance and the
+    /// nearest approaches to join, so an approach can be picked without zooming in.
+    @ViewBuilder
+    private func approachList(for ac: Aircraft, at p: CGPoint, size: CGSize) -> some View {
+        let runways = openIlsRunways.sorted { $0.id < $1.id }
+        VStack(alignment: .leading, spacing: 4) {
+            Text("APPROACH  (\u{2022} starts on its route; NM to the first fix)")
+                .font(.ui(size: 10, design: .monospaced)).foregroundStyle(theme.heading)
+            ForEach(runways, id: \.id) { runway in
+                HStack(spacing: 6) {
+                    listButton("\(runway.ils == nil ? "VIS" : "ILS") \(runway.id)", colour: theme.text) {
+                        controls.add(runway.ils == nil ? .visualApproach(runway: runway.id) : .approach(runway: runway.id), aircraft: ac)
+                    }
+                    ForEach(approachChoices(for: ac, runway: runway.id)) { choice in
+                        listButton("\(choice.onRoute ? "\u{2022}" : "")\(choice.proc.id) \(Int(choice.nm.rounded()))",
+                                   colour: choice.onRoute ? theme.ok : theme.dimText) {
+                            controls.add(.joinApproach(procedure: choice.proc.id, runway: choice.runway, via: choice.firstFix),
+                                         aircraft: ac)
+                        }
+                    }
+                }
+            }
+        }
+        .padding(8)
+        .background(RoundedRectangle(cornerRadius: 6).fill(theme.panel))
+        .overlay(RoundedRectangle(cornerRadius: 6).stroke(theme.panelBorder, lineWidth: 1))
+        .fixedSize()
+        .offset(x: max(8, min(p.x + 70, size.width - 460)), y: max(8, min(p.y - 40, size.height - 60 - 22 * CGFloat(runways.count))))
+    }
+
+    private func listButton(_ title: String, colour: Color, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.ui(size: 11, weight: .semibold, design: .monospaced))
+                .foregroundStyle(colour)
+                .padding(.horizontal, 5).padding(.vertical, 2)
+                .overlay(RoundedRectangle(cornerRadius: 3).stroke(theme.approach.opacity(0.7), lineWidth: 1))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     /// Buttons on the scope: one per open runway on its extended centreline, and one per approach on its first leg.
@@ -918,6 +1003,24 @@ struct ScopeView: View {
                            with: .color(Self.emergencyRed.opacity(0.55)), style: StrokeStyle(lineWidth: 1.2, dash: [4, 3]))
             }
 
+            // The selected departure's exit fix: a thin dotted line from the end of its route (or from the aircraft)
+            // and a ring around the fix.
+            if ac.callsign == selected, let exit = ac.departure?.exitFix,
+               let fix = airport.fixes.first(where: { $0.id == exit }) {
+                let q = airport.referenceProjection.nm(lat: fix.lat, lon: fix.lon)
+                let target = point(east: q.east, north: q.north)
+                let from = ac.routeIndex < ac.route.count
+                    ? point(east: ac.route[ac.route.count - 1].eastNM, north: ac.route[ac.route.count - 1].northNM) : p
+                var exitPath = Path()
+                exitPath.move(to: from)
+                exitPath.addLine(to: target)
+                ctx.stroke(exitPath, with: .color(theme.sid.opacity(0.9)), style: StrokeStyle(lineWidth: 1.2, dash: [2, 4]))
+                ctx.stroke(Path(ellipseIn: CGRect(x: target.x - 9, y: target.y - 9, width: 18, height: 18)),
+                           with: .color(theme.sid), lineWidth: 1.5)
+                ctx.draw(Text("EXIT").font(.ui(size: 9, weight: .semibold, design: .monospaced)).foregroundColor(theme.sid),
+                         at: CGPoint(x: target.x, y: target.y + 12), anchor: .top)
+            }
+
             // The selected aircraft's remaining route.
             if ac.callsign == selected, ac.routeIndex < ac.route.count {
                 var routePath = Path()
@@ -974,7 +1077,8 @@ struct ScopeView: View {
             ctx.stroke(Path(symbol), with: .color(trackColor), lineWidth: 1.5)
 
             // Tag: a box with callsign, speed and altitude (and the last instructions), joined to the symbol by a
-            // leader line. Drag the box to move it.
+            // leader line. Drag the box to move it. None yet for a departure waiting for take-off clearance.
+            if !showsTag(ac) { continue }
             let lines = tagLines(ac)
             let box = tagFrame(ac, size: size)
             if !box.insetBy(dx: -3, dy: -3).contains(p) {
@@ -998,7 +1102,7 @@ struct ScopeView: View {
             for (i, line) in lines.enumerated() {
                 let font = Font.ui(size: i == 2 ? 10 : 11, design: .monospaced)
                 var colour = i == 2 ? trackColor.opacity(0.7) : trackColor
-                if unvectored && line == "RWY HDG" { colour = theme.warning }
+                if unvectored && line.hasPrefix("RWY HDG") { colour = theme.warning }
                 ctx.draw(Text(line).font(font).foregroundColor(colour),
                          at: CGPoint(x: box.minX + 5, y: box.minY + 3 + CGFloat(i) * 13 * UIScale.factor), anchor: .topLeading)
             }
