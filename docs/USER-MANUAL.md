@@ -13,9 +13,10 @@ flightcATCher is a radar approach and departure control game. You sit at the sco
 6. [Tutorial: your first departure](#6-tutorial-your-first-departure)
 7. [Wind and runways](#7-wind-and-runways)
 8. [Random events](#8-random-events)
-9. [Settings](#9-settings)
-10. [When something goes wrong](#10-when-something-goes-wrong)
-11. [Glossary](#11-glossary)
+9. [Scoring and the debrief](#9-scoring-and-the-debrief)
+10. [Settings](#10-settings)
+11. [When something goes wrong](#11-when-something-goes-wrong)
+12. [Glossary](#12-glossary)
 
 ---
 
@@ -26,7 +27,7 @@ flightcATCher is a radar approach and departure control game. You sit at the sco
 3. Aircraft appear on the scope. Click one to select it, type a command in the command bar (for example `d70 s180`), and press Enter.
 4. Arrivals: bring them down and line them up, clear the approach, then hand them to the tower. Departures: line up, clear for take-off, climb to the plan level, then hand them off.
 
-Press Cmd+, for Settings, and use the Commands panel for a cheat sheet at any time.
+Press Cmd+, for Settings, and use the Commands and scoring panel for a cheat sheet at any time. Your score is in Airport info; press **END** (top right) to finish the session and see the debrief.
 
 ---
 
@@ -36,13 +37,15 @@ Press Cmd+, for Settings, and use the Commands panel for a cheat sheet at any ti
 - **Drag** to pan; **pinch** or the **+ / -** buttons to zoom. Esc clears the selection.
 - Each aircraft has a **tag** (callsign, altitude, speed and so on). Drag a tag to move it. Settings can declutter tags.
 - **Velocity vectors**, **range rings** and an optional **compass ring** help you judge distances and turns.
-- **Warnings**: conflicting aircraft and losses of separation are flagged.
+- **Warnings**: predicted conflicts (amber) and losses of separation (red) are flagged. The prediction follows each aircraft's route, turning at its fixes; aircraft on vectors are projected straight on.
+- **Departures waiting** at the holding point or lined up show only their symbol. Their tag appears once you clear them for take-off. Right-click the symbol, or use the strip, to work with them.
+- **Departure tags** show the exit fix: `RWY HDG → BCE` while still on runway heading (amber once airborne without a vector), `EXIT → BCE` after. Select a departure to see a dotted line to its exit fix.
 - With an aircraft selected, its **remaining route** is drawn, and a small **arc** shows where it will reach its target altitude at its current speed. Hover a level in the ALT picker to preview where that level would be reached.
 - Aircraft you have **handed over** to the tower are greyed out.
-- You can switch fixes, STARs, SIDs and approaches on and off individually in Settings > Layers.
+- **STAR**, **SID** and **APP** in the control bar show or hide all STARs, SIDs and approaches; Settings > Layers switches them individually, and fixes too.
 
-### Top-left controls
-The clock, **Pause / Run**, a **1x / 5x / 20x** speed selector, the **+ / -** zoom buttons, the airport picker and the settings gear. Pause freezes the simulation, which is useful for planning a vector. Time runs at the chosen multiple when you speed up.
+### The control bar
+Across the top: the airport and clock, **Pause / Run**, a speed slider from **1x to 20x**, the **+ / -** zoom buttons, the airport picker, the **STAR / SID / APP** layer toggles, one button per panel, the settings gear and, after a divider, **END**. Pause freezes the simulation, which is useful for planning a vector. END pauses and opens the debrief (see [section 9](#9-scoring-and-the-debrief)).
 
 ### Panels
 Panels float over the scope. Drag a title bar to move, use the pin to lock one in place, resize from the corner. Show and hide them in Settings > Panels, which also has Reset layout.
@@ -50,10 +53,10 @@ Panels float over the scope. Drag a title bar to move, use the pin to lock one i
 | Panel | What it shows |
 |---|---|
 | **Aircraft** | Strips for arrivals and departures with the last instruction given. Departures show their plan level and handoff level. `...` means the pilot has not yet complied. Handed-over aircraft shrink to a greyed line. |
-| **Radio** | Your calls, pilot readbacks and system notices, colour-coded by speaker and importance (red emergencies, amber go-arounds and refusals, green good news). With an aircraft selected, all its calls are highlighted. |
-| **Airport info** | Elevation, transition altitude, the wind and whether it is a real METAR or random, a countdown to the next update, open runways with head and crosswind, closed runways with the reason, and the separation monitor. |
+| **Radio** | Your calls, pilot readbacks and system notices, colour-coded by speaker and importance (red emergencies, amber go-arounds and refusals, green good news). Under each of your calls, a dim line shows it as you would type it (`> aal123 d70 s180`); a chain appears once, on its first call. With an aircraft selected, all its calls are highlighted. |
+| **Airport info** | In sections: the airport (elevation, transition altitude, open runways with head and crosswind, closed runways with the reason); the wind, its source (real METAR or random) and the next update; the current traffic rates (TRAF); the score (SCORE with multiplier and grade, LAST change); the separation monitor. |
 | **Runways** | A zoomed-in runway chart. Green: free. Yellow: an arrival is cleared to land there. Red: a take-off or landing is using it. |
-| **Commands** | The command cheat sheet. |
+| **Commands and scoring** | The command cheat sheet and the scoring table. Resizable and scrolling. |
 | **Debug log** | Only when enabled in Settings > Debug. |
 
 ---
@@ -71,12 +74,12 @@ Type an optional callsign followed by one or more codes, then press Enter.
 - Press **Tab** to complete a callsign. Esc clears the line.
 
 ### The radial menu
-Right-click an aircraft. A ring appears with **HDG, ALT, SPD, DCT, APP, XNG, MAINT, HO** and **COL**. MAINT tells the aircraft to maintain its present heading, altitude and speed; it cancels a route, a crossing, an expedite and an approach still being intercepted, and is refused once the aircraft is established on the approach. Departures on the ground get **LUP** and **T/O** instead of the approach options.
+Right-click an aircraft. A ring appears with **HDG, ALT, SPD, DCT, APP** and **HO**, and a small outer arc with **XNG, MAINT, OWN, MAC** and **COL**. OWN is "resume own navigation" (see `own` below); MAC runs a macro. MAINT tells the aircraft to maintain its present heading, altitude and speed; it cancels a route, a crossing, an expedite and an approach still being intercepted, and is refused once the aircraft is established on the approach. Departures on the ground get **LUP** and **T/O** instead of the approach options.
 
 - Pick a value (a heading, an altitude, a speed, a fix) and it is collected as a **chip**. Pick several, then press Enter to send them together. Esc backs out.
 - **HDG**: point and click on the scope. Hold Option to turn the other way.
 - **ALT**: a departure's flight-plan level is marked with a star and an outline, so you don't need to check the strip.
-- **APP**: choose the approach. A runway without an ILS gets a visual approach. The **Join approach** menu sends the aircraft direct to an approach's first fix and clears it.
+- **APP**: a list opens beside the aircraft, one line per open runway: first the ILS clearance (VIS for a runway without an ILS), then up to three approaches to join, with the distance in NM to each one's first fix. An approach that starts at a fix already on the aircraft's route comes first and is marked •. Pick one; it works at any zoom, which helps at airports with many parallel runways. The buttons on the scope still work too.
 - **COL** sets the colour of that aircraft's marker.
 
 ### Strips and buttons
@@ -99,15 +102,19 @@ The number after `d` or `c` is in hundreds of feet. Above 5,000 ft it is a fligh
 | `hNNNl` / `hNNNr` | `h270l` | Turn left / right to the heading |
 | `s` | `s180` | Speed 180 kt |
 | `i` | `i27` | Cleared ILS approach to the runway (a runway without an ILS gets a visual approach) |
-| `p` | `p kerav` | Proceed direct to a fix. `p fixa fixb` goes through each in turn |
+| `j` + runway | `j01l`, `j01l.2` | Join the best approach to runway 01L for this aircraft (one starting on its route, else the nearest first fix); `.2`, `.3` pick the next choices. The preview lists them as you type |
+| `j` + ID | `j r01ly.welet` | Join a named approach: direct to its first fix, fly it, cleared (I = ILS, R = RNAV, H = RNAV RNP) |
+| `p` | `p kerav` | Proceed direct to a fix. `p fixa fixb` goes through each in turn. `p exit` sends a departure to its exit fix |
 | `x` | `x kerav 50` | Cross a fix at 5,000 ft (the fix must be on the route) |
 | `m` | `m` | Maintain present heading, altitude and speed. Cancels route, crossing, expedite and an approach still being intercepted |
+| `own` / `rn` | `own` | Resume own navigation: back onto the assigned STAR, SID or direct-to-fix route at the next fix after the nearest part of it; a departure then continues to its exit fix |
+| `mac` | `mac appr`, `mac-` | Run an airport macro on the aircraft / stop it |
 | `lu` | `lu` | Departure: line up and wait |
 | `to` | `to` | Departure: cleared for take-off, from the hold or lined up |
 | `ho` | `ho` | Handoff (conditions below) |
 | `!` | `d50! h270l!` | Add to a descent, climb, turn or speed change to expedite it |
 
-Examples of chains: `ein d70 s180 h270l` (descend, slow and turn), `ryr c120 p kerav` (climb and go direct).
+Examples of chains: `ein d70 s180 h270l` (descend, slow and turn), `ryr c120 p kerav` (climb and go direct), `rpa5601 s180 d30 j01l` (slow, descend and join the best approach to 01L).
 
 **Limits.** Controllers can assign altitudes down to the airport's floor (field elevation plus 2,000 ft, rounded up to a whole thousand). An aircraft already cleared for the approach may go down to field elevation plus 1,000 ft, rounded down. Each type has its own speed range and ceiling.
 
@@ -152,9 +159,9 @@ Once the aircraft is lined up for an intercept, give the clearance:
 ein i27
 ```
 
-A runway with an ILS flies the localiser then the glideslope; a runway without one gets a visual approach built from the runway itself. You can also use the APP ring or the ILS and VIS buttons. The pilot reads back, then **intercepts** and the strip changes to show the phase.
+A runway with an ILS flies the localiser then the glideslope; a runway without one gets a visual approach built from the runway itself. You can also use the APP list on the radial menu or the ILS and VIS buttons. To fly a published approach from its first fix instead (RNAV or ILS with a transition), use `ein j27` for the best one for this aircraft, or `ein j r27.aybee` for a named one. The pilot reads back, then **intercepts** and the strip changes to show the phase.
 
-You may clear the approach slightly early: the aircraft keeps flying its heading until it reaches the localiser, then turns on. If it never turns, see [section 10](#10-when-something-goes-wrong).
+You may clear the approach slightly early: the aircraft keeps flying its heading until it reaches the localiser, then turns on. If it never turns, see [section 11](#11-when-something-goes-wrong).
 
 ### Step 6. Make sure it is stable
 Inside 2.5 NM the aircraft must be on the glidepath and slower than 190 kt, or it **goes around** automatically ("unstable", "not established", or too high). Reduce speed with `s180` early, and descend to be at or below the glidepath when it captures. The aircraft limits its own speed along the final approach: slower inside 8 NM, slower again inside 5 NM.
@@ -171,6 +178,12 @@ It greys out on the scope and strip and lands by itself. The Runways panel turns
 ### If it goes around
 A go-around is announced on the Radio panel (amber). The aircraft climbs and flies the missed approach on its own. Re-vector it for another approach, or hand it back into the pattern with a heading and altitude.
 
+### If you vectored it off its route
+Send `own` (or OWN on the radial menu) and it rejoins its STAR at the next fix ahead.
+
+### Airports without STARs
+Many airports have no STARs in the FAA data. Arrivals there are handed in at the edge of the approach area heading direct for an initial approach fix ("DCT FIX" on the strip). Vector them, or clear them for an approach; an arrival that reaches its fix with no clearance flies on and costs points.
+
 ---
 
 ## 6. Tutorial: your first departure
@@ -178,7 +191,7 @@ A go-around is announced on the Radio panel (amber). The aircraft climbs and fli
 Goal: take one aircraft from the holding point to the handoff.
 
 ### Step 1. Find a departure
-Departures wait at the **holding point** of an open runway (up to three per runway) and announce "ready for departure". They appear in the Aircraft panel. Click one. Its strip shows the runway, the assigned SID, its flight-plan level and its handoff level.
+Departures wait at the **holding point** of an open runway (up to three per runway) and announce "ready for departure". They appear in the Aircraft panel. Click one. Its strip shows the runway, the assigned SID (if the runway has any), its flight-plan level, its handoff level and its **exit fix**. On the scope they show only a symbol until cleared for take-off.
 
 ### Step 2. Check the runway
 Look at the **Runways** panel. Red means a take-off or landing is using the runway. Line-up and take-off are refused while the runway is occupied ("runway 27 is occupied"), and take-off is refused when an arrival is within 4 NM on final ("EIN is on final, 3.2 NM"). Yellow means an arrival is cleared to land there, so plan the gap before you release the departure.
@@ -199,7 +212,10 @@ When the runway is free and the final is clear:
 to
 ```
 
-You can clear for take-off straight from the holding point without lining up first; the same runway checks apply. The aircraft accelerates, rotates and climbs. It follows its SID automatically and climbs to its initial altitude.
+You can clear for take-off straight from the holding point without lining up first; the same runway checks apply. The clearance includes the departure instruction: "BOFUM one Alfa departure, climb and maintain three thousand feet, runway zero four right, cleared for take-off" with a SID, or "fly runway heading, climb to three thousand feet, ..." without one. The aircraft accelerates, rotates and climbs; its tag appears.
+
+- **With a SID** it follows the SID automatically and climbs to its initial altitude.
+- **Without a SID** it flies runway heading (RWY HDG in its tag, amber once airborne) until you give it a heading, a direct, or `p exit` to its exit fix.
 
 ### Step 5. Climb to the plan level
 The ALT picker highlights the flight-plan level with a star, so you can pick it without checking the strip. Or type the climb, for example:
@@ -211,13 +227,13 @@ ryr c120
 Keep it clear of arrivals; the initial altitude is low, so cross-traffic is your main concern in the first few minutes. Use `x fix level` or a heading to separate it from an arrival flow.
 
 ### Step 6. Hand off
-Once the aircraft is above its **handoff level** and its target altitude is the plan level, send:
+Once the aircraft is above its **handoff level**, its target altitude is the plan level, and ideally it is heading for its exit fix, send:
 
 ```
 ryr ho
 ```
 
-The aircraft leaves your area. If the handoff is refused the radio log says why: "climbing through 3,200 ft, handoff at 4,000 ft" or "not cleared to its plan level".
+The aircraft leaves your area. If the handoff is refused the radio log says why: "climbing through 3,200 ft, handoff at 4,000 ft" or "not cleared to its plan level". Handing off a departure heading for its exit fix (within 30°, or routed through it) earns a bonus; more than 90° away costs points.
 
 ### Running departures and arrivals together
 - Leave a gap on the runway. A departure that is lined up or rolling when an arrival is within 1.5 NM of the threshold makes the arrival go around ("runway occupied"), and a take-off clearance is refused if an arrival is within 4 NM on final.
@@ -250,21 +266,64 @@ Settings > Events sets each percentage (defaults 3%, 2% and 2%). Set them to 0 f
 
 ---
 
-## 9. Settings
+## 9. Scoring and the debrief
+
+A session starts when the airport loads. The score, its multiplier, the grade and the last change are shown in Airport info; changes of 100 points or more are also announced on the radio.
+
+| Gains | Points |
+|---|---|
+| Arrival handed to the tower, established | +100 |
+| Arrival lands | +20 |
+| Efficient arrival (up to 1.2 times its clean time; less up to 2 times) | up to +30 |
+| Departure handed off | +80 |
+| … cleared to its plan level | +20 |
+| … heading for its exit fix (within 30°, or routed through it) | +20 |
+| Emergency aircraft landed (extra) | +30 |
+
+| Penalties | Points |
+|---|---|
+| Loss of separation | −300, and −50 every 10 s it lasts |
+| Departure leaves the area without a handoff | −150 |
+| Go-around you caused (unstable, too high, too fast, runway occupied) | −100 |
+| Arrival reaches the end of its route with no clearance | −50 |
+| Emergency given no instruction for 2 minutes | −50 |
+| Departure handed off more than 90° from its exit | −30 |
+| Runway-heading departure not vectored by 10 NM | −20 |
+| Conflict alert (predicted loss) | −10 |
+| Instruction refused by the pilot | −5 |
+| Each minute a departure waits at the hold after 3 minutes | −1 |
+
+Not your fault, so free: pilot's-decision and windshear go-arounds, and any loss of separation between two arrivals that are both with the tower.
+
+**Separation.** 3 NM or 1,000 ft. Two aircraft both established on approaches to **parallel runways** use the parallel rules instead: no minimum between runways 4,300 ft or more apart (independent approaches), 1.5 NM diagonal between closer ones (dependent). While either is still intercepting, the normal minimum applies, so keep 1,000 ft between them until both are established.
+
+**Multiplier.** Score = points × a multiplier from the average traffic rate, a Moderate or Lively variation, random events, live weather and gusts. Busier sessions are worth more.
+
+**Grade.** Points against the most the aircraft you handled could have earned: A 85% and over (Supervisor), B 70% (Senior controller), C 50% (Controller), D 30% (Trainee), E below (Removed from position). One loss of separation caps the grade at C, three give E.
+
+**END and the debrief.** END at the top right pauses the game and shows the debrief: the score and grade, a breakdown by category, throughput and counts, charts of score and traffic over the session, the worst moments with times, the best and worst arrival for efficiency, and this airport's best five scores. Then:
+- **Resume** carries on; points count again.
+- **New session** starts again at the same airport.
+- **Replay this seed** starts again with exactly the same traffic (the seed is fixed in Settings > Traffic) so you can beat your score.
+- **Quit** closes the game. Sessions with at least one aircraft handled are already saved in the best-scores table.
+
+---
+
+## 10. Settings
 
 Open with Cmd+, or the gear button.
 
 - **Display**: text size (Cmd+= larger, Cmd+- smaller, Cmd+0 reset), colour scheme, compass, tag options.
 - **Layers**: fixes, STARs, SIDs and approaches.
 - **Panels**: show or hide, reset layout.
-- **Traffic**: arrivals and departures per hour, presets (Quiet, Moderate, Busy and others), aircraft categories and types, optional fixed seed to repeat a session.
+- **Traffic**: arrivals and departures per hour as a **Low–High range** each (set both equal for a fixed rate), **Variation** (Steady: a new rate every 20–30 min; Moderate: 8–15; Lively: 3–8 with bigger jumps), presets (Quiet, Moderate, Busy, Rush and others), the approach area radius and ceiling, aircraft categories and types, optional fixed seed to repeat a session. The window can be resized and the tabs scroll.
 - **Weather**: live, random or fixed wind.
 - **Events**: go-around, windshear and emergency percentages.
 - **Debug**: the optional debug log and the test spawner (see below).
 
 ---
 
-## 10. When something goes wrong
+## 11. When something goes wrong
 
 **Radio tags.** Notable calls carry a tag column between the callsign and the message: MAYDAY, PAN PAN and EMERG (red), LOSS and CONFLICT (separation), G/A (go-around), WSHEAR, REFUSED (a clearance the simulation will not accept, such as a closed or occupied runway), UNABLE (the pilot cannot comply) and HIGH (above the glidepath). Red tags are urgent, amber ones are warnings.
 
@@ -272,7 +331,9 @@ Open with Cmd+, or the gear button.
 
 **The aircraft does not turn onto the approach.** The clearance is accepted but capture needs the aircraft to be 2.5 to 30 NM out, within 60 degrees of the course, closing on it, and near enough to the centreline. If you cleared it late or at a bad angle it will stay on its heading. Send a new heading to set up a better intercept, then clear it again.
 
-**A command was refused.** Read the Radio panel: the reason is given ("Unable: ..."). Fix it and resend.
+**A command was refused.** Read the Radio panel: the reason is given ("Unable: ..."). Fix it and resend. A refusal costs 5 points.
+
+**Orange conflict warnings.** These are predictions: the two aircraft would lose separation within two minutes if they carry on as they are (along their routes, or straight on when on vectors). Give one of them 1,000 ft or a turn now. Each new warning costs 10 points.
 
 **Nothing seems to happen after a command.** Pilots comply after a short delay. The strip shows `...` until they do.
 
@@ -288,7 +349,7 @@ For hard cases, turn on **Settings > Debug**. A Debug log panel appears and a lo
 
 ---
 
-## 11. Glossary
+## 12. Glossary
 
 - **ILS**: instrument landing system. Localiser (lateral) and glideslope (vertical).
 - **Localiser / centreline**: the line extended from the runway.
@@ -300,3 +361,6 @@ For hard cases, turn on **Settings > Debug**. A Debug log panel appears and a lo
 - **Handoff**: passing the aircraft to the next controller (tower for arrivals, centre for departures).
 - **Go-around**: aborted landing; the aircraft climbs and flies the missed approach.
 - **Plan level**: the cruise level a departure expects (shown on its strip).
+- **Exit fix**: where a departure leaves your area: the end of its SID, or a fix near the area edge picked for it.
+- **Resume own navigation**: return to the assigned route after vectors (`own`).
+- **RNAV / RNP**: approaches flown by GPS waypoints instead of a radio beam (IDs start with R or H).
