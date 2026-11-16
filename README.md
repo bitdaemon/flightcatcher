@@ -6,7 +6,6 @@ A 2D radar approach and departure control game for macOS. You vector arrivals on
 
 Native Swift, SwiftUI Canvas scope, deterministic simulation engine. No accounts, no telemetry; the only network call is the optional METAR fetch.
 
-![The scope at Boston (KBOS) with arrivals on STARs and the radio panel](docs/screenshots/scope.png)
 
 > **This is a game, not a simulator.**
 > - Traffic is invented. Flights, callsigns, aircraft types and timings are random; there is no connection to real schedules, live flight data or ADS-B.
