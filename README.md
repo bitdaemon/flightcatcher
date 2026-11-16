@@ -8,7 +8,14 @@ Native Swift, SwiftUI Canvas scope, deterministic simulation engine. No accounts
 
 ![The scope at Boston (KBOS) with arrivals on STARs and the radio panel](docs/screenshots/scope.png)
 
-> **Not for real-world navigation or training.** This is a game. Procedures and data are approximations and may be wrong or out of date.
+> **This is a game, not a simulator.**
+> - Traffic is invented. Flights, callsigns, aircraft types and timings are random; there is no connection to real schedules, live flight data or ADS-B.
+> - Procedures, airspace and performance are simplified. STARs, SIDs and approaches come from FAA CIFP data but are converted and partly approximated; airspace is a circle, SID altitude and speed restrictions are not flown, and aircraft performance is generic per type.
+> - Separation and phraseology are close to ICAO and FAA practice but not exact. Parallel-approach rules, wake turbulence, frequencies, coordination with other units and many real procedures are simplified or left out.
+> - Data may be out of date. The bundled airport data is a snapshot and is not updated with each AIRAC cycle. Live METARs are used only to set the wind.
+> - Airline names and callsigns are used only for flavour. The game is not affiliated with or endorsed by any airline, the FAA, any air navigation service provider or Apple.
+>
+> Do not use it for real-world navigation, flight planning, or controller or pilot training.
 
 ## Features
 
